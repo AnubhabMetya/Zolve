@@ -1,0 +1,79 @@
+{
+  "name": "Zolve - Verify Razorpay Payment Signature Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zolve-verify-payment",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook - Verify Signature",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst { razorpay_order_id, razorpay_payment_id, razorpay_signature, booking_id } = $input.item.json.body;\n\nconst keySecret = $env.RAZORPAY_KEY_SECRET;\nconst generatedSignature = crypto\n  .createHmac('sha256', keySecret)\n  .update(`${razorpay_order_id}|${razorpay_payment_id}`)\n  .digest('hex');\n\nconst isValid = (generatedSignature === razorpay_signature);\n\nreturn {\n  isValid,\n  razorpay_order_id,\n  razorpay_payment_id,\n  booking_id,\n  status: isValid ? 'CAPTURED' : 'FAILED'\n};"
+      },
+      "name": "Cryptographic Signature Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.isValid }}", "value2": true }]
+        }
+      },
+      "name": "Is Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE payments SET status = 'CAPTURED', razorpay_payment_id = $1, razorpay_signature = $2, updated_at = NOW() WHERE razorpay_order_id = $3;\nUPDATE bookings SET booking_status = 'CONFIRMED', payment_status = 'CAPTURED', updated_at = NOW() WHERE id = $4;",
+        "queryParams": "={{ [$json.razorpay_payment_id, $('Webhook - Verify Signature').item.json.body.razorpay_signature, $json.razorpay_order_id, $json.booking_id] }}"
+      },
+      "name": "Supabase - Mark Confirmed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ verified: true, message: 'Payment verified and booking confirmed successfully' }) }}"
+      },
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ verified: false, error: 'Signature verification failed' }) }}"
+      },
+      "name": "Failure Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 420]
+    }
+  ],
+  "connections": {
+    "Webhook - Verify Signature": { "main": [[{ "node": "Cryptographic Signature Check", "type": "main", "index": 0 }]] },
+    "Cryptographic Signature Check": { "main": [[{ "node": "Is Signature Valid?", "type": "main", "index": 0 }]] },
+    "Is Signature Valid?": {
+      "main": [
+        [{ "node": "Supabase - Mark Confirmed", "type": "main", "index": 0 }],
+        [{ "node": "Failure Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Supabase - Mark Confirmed": { "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]] }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "name": "Zolve - Razorpay Webhook Handler Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zolve-razorpay-webhook",
+        "responseMode": "onReceived"
+      },
+      "name": "Razorpay Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $input.item.json.body.event;\nconst payload = $input.item.json.body.payload;\n\nreturn {\n  event,\n  payment: payload.payment ? payload.payment.entity : null,\n  order: payload.order ? payload.order.entity : null,\n  refund: payload.refund ? payload.refund.entity : null\n};"
+      },
+      "name": "Parse Event Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.event }}",
+        "rules": {
+          "rules": [
+            { "value2": "payment.captured", "output": 0 },
+            { "value2": "payment.failed", "output": 1 },
+            { "value2": "refund.processed", "output": 2 }
+          ]
+        }
+      },
+      "name": "Switch Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE payments SET status = 'CAPTURED', razorpay_payment_id = $1, webhook_verified = TRUE, updated_at = NOW() WHERE razorpay_order_id = $2;\nUPDATE bookings SET booking_status = 'CONFIRMED', payment_status = 'CAPTURED' WHERE id = (SELECT booking_id FROM payments WHERE razorpay_order_id = $2);",
+        "queryParams": "={{ [$json.payment.id, $json.payment.order_id] }}"
+      },
+      "name": "Handle Payment Captured",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [880, 180]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE payments SET status = 'FAILED', updated_at = NOW() WHERE razorpay_order_id = $1;\nUPDATE bookings SET booking_status = 'PAYMENT_PENDING', payment_status = 'FAILED' WHERE id = (SELECT booking_id FROM payments WHERE razorpay_order_id = $1);",
+        "queryParams": "={{ [$json.payment.order_id] }}"
+      },
+      "name": "Handle Payment Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE payments SET status = 'REFUNDED', refund_id = $1, refund_amount = $2, updated_at = NOW() WHERE razorpay_payment_id = $3;\nUPDATE bookings SET booking_status = 'REFUNDED', payment_status = 'REFUNDED' WHERE id = (SELECT booking_id FROM payments WHERE razorpay_payment_id = $3);",
+        "queryParams": "={{ [$json.refund.id, $json.refund.amount / 100, $json.refund.payment_id] }}"
+      },
+      "name": "Handle Refund Processed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [880, 420]
+    }
+  ],
+  "connections": {
+    "Razorpay Webhook Trigger": { "main": [[{ "node": "Parse Event Payload", "type": "main", "index": 0 }]] },
+    "Parse Event Payload": { "main": [[{ "node": "Switch Event Type", "type": "main", "index": 0 }]] },
+    "Switch Event Type": {
+      "main": [
+        [{ "node": "Handle Payment Captured", "type": "main", "index": 0 }],
+        [{ "node": "Handle Payment Failed", "type": "main", "index": 0 }],
+        [{ "node": "Handle Refund Processed", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}

@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#F8FAFC] text-slate-900 overflow-x-hidden;
+  }
+  html.dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
+}
+
+/* Dark mode global overrides — makes existing bg-white / slate cards dark without editing every component */
+html.dark .bg-white { background-color: rgb(15 23 42) !important; }
+html.dark .bg-slate-50 { background-color: rgb(15 23 42) !important; }
+html.dark .bg-slate-100 { background-color: rgb(30 41 59) !important; }
+html.dark .bg-slate-100\/90 { background-color: rgba(30,41,59,0.9) !important; }
+html.dark .bg-\[\#F8FAFC\] { background-color: rgb(2 6 23) !important; }
+html.dark .bg-slate-50\/80 { background-color: rgba(15,23,42,0.8) !important; }
+html.dark .border-slate-200,
+html.dark .border-slate-200\/80,
+html.dark .border-slate-200\/90 { border-color: rgb(30 41 59) !important; }
+html.dark .border-slate-100 { border-color: rgb(30 41 59) !important; }
+html.dark .text-slate-900 { color: rgb(241 245 249) !important; }
+html.dark .text-slate-800 { color: rgb(226 232 240) !important; }
+html.dark .text-slate-700 { color: rgb(203 213 225) !important; }
+html.dark .text-slate-600,
+html.dark .text-slate-500 { color: rgb(148 163 184) !important; }
+html.dark .text-slate-400 { color: rgb(100 116 139) !important; }
+html.dark .shadow-subtle,
+html.dark .shadow-premium { box-shadow: 0 2px 10px rgba(0,0,0,0.4), 0 10px 30px rgba(0,0,0,0.3) !important; }
+html.dark ::-webkit-scrollbar-track { background: #1e293b; }
+html.dark ::-webkit-scrollbar-thumb { background: #475569; }
+
+/* Custom modern scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Glassmorphism and UI cards */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.glass-panel-dark {
+  background: rgba(11, 19, 43, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.subtle-badge {
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide;
+}
+
+/* Print styles for payment receipts and invoices */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-receipt, .printable-receipt * {
+    visibility: visible;
+  }
+  .printable-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}

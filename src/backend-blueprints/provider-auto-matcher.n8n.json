@@ -1,0 +1,41 @@
+{
+  "name": "Zolve - Provider Auto Matcher & Notification Dispatcher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zolve-match-providers",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook - Provider Match Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.*, u.name, u.phone, u.avatar, cm.membership_status FROM providers p JOIN users u ON p.user_id = u.id LEFT JOIN cooperative_members cm ON p.id = cm.provider_id WHERE p.verification_status = 'verified' AND p.id IN (SELECT provider_id FROM provider_services WHERE service_id = $1) ORDER BY p.rating DESC, p.completed_jobs DESC LIMIT 10;",
+        "queryParams": "={{ [$input.item.json.body.service_id] }}"
+      },
+      "name": "Find Qualified Verified Providers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, providers: $input.all().map(i => i.json) }) }}"
+      },
+      "name": "Respond Matched Providers",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Provider Match Trigger": { "main": [[{ "node": "Find Qualified Verified Providers", "type": "main", "index": 0 }]] },
+    "Find Qualified Verified Providers": { "main": [[{ "node": "Respond Matched Providers", "type": "main", "index": 0 }]] }
+  }
+}

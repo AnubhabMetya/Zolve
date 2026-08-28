@@ -1,0 +1,54 @@
+{
+  "name": "Zolve - AI Service Classifier Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zolve-ai-classify",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook - Service Query",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.2
+        },
+        "messages": {
+          "messageValues": [
+            {
+              "role": "system",
+              "content": "You are Zolve's AI Service Classifier. Analyze user service queries (e.g., 'water leaking from sink', 'AC not cooling', 'switch sparking') and output JSON with: 1. category ('Household', 'Personal', 'Community'), 2. subcategory ('Plumbing', 'Electrical', 'Cleaning', 'Appliance Repair', etc.), 3. recommended_service_name, 4. estimated_price_min, 5. estimated_price_max, 6. urgency ('Low', 'Normal', 'High', 'Emergency'), 7. reason. Return pure JSON only."
+            },
+            {
+              "role": "user",
+              "content": "={{ $input.item.json.body.query }}"
+            }
+          ]
+        }
+      },
+      "name": "OpenAI / Claude Classifier",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.message.content }}"
+      },
+      "name": "Respond AI Match",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Service Query": { "main": [[{ "node": "OpenAI / Claude Classifier", "type": "main", "index": 0 }]] },
+    "OpenAI / Claude Classifier": { "main": [[{ "node": "Respond AI Match", "type": "main", "index": 0 }]] }
+  }
+}

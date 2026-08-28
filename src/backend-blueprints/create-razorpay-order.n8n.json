@@ -1,0 +1,74 @@
+{
+  "name": "Zolve - Create Razorpay Order Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zolve-create-order",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook - Create Order Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate booking details, amount, and customer auth\nconst body = $input.item.json.body;\nif (!body.amount || !body.booking_id || !body.customer_id) {\n  throw new Error('Invalid request payload');\n}\n\n// Convert INR amount to paise\nconst amountInPaise = Math.round(Number(body.amount) * 100);\n\nreturn {\n  amount: amountInPaise,\n  currency: 'INR',\n  receipt: `rcpt_${body.booking_id.substring(0, 15)}`,\n  notes: {\n    booking_id: body.booking_id,\n    customer_id: body.customer_id,\n    service_name: body.service_name || 'Zolve Service'\n  }\n};"
+      },
+      "name": "Validate & Prepare Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.razorpay.com/v1/orders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "amount", "value": "={{ $json.amount }}" },
+            { "name": "currency", "value": "={{ $json.currency }}" },
+            { "name": "receipt", "value": "={{ $json.receipt }}" },
+            { "name": "notes", "value": "={{ $json.notes }}" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Razorpay API - Create Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO payments (booking_id, customer_id, razorpay_order_id, amount, status) VALUES ($1, $2, $3, $4, 'CREATED') RETURNING id;",
+        "queryParams": "={{ [$('Webhook - Create Order Request').item.json.body.booking_id, $('Webhook - Create Order Request').item.json.body.customer_id, $json.id, $('Webhook - Create Order Request').item.json.body.amount] }}"
+      },
+      "name": "Supabase - Record Initial Payment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, order_id: $('Razorpay API - Create Order').item.json.id, amount: $('Razorpay API - Create Order').item.json.amount, currency: $('Razorpay API - Create Order').item.json.currency, key_id: $env.RAZORPAY_KEY_ID }) }}"
+      },
+      "name": "Respond to Frontend",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Create Order Request": { "main": [[{ "node": "Validate & Prepare Payload", "type": "main", "index": 0 }]] },
+    "Validate & Prepare Payload": { "main": [[{ "node": "Razorpay API - Create Order", "type": "main", "index": 0 }]] },
+    "Razorpay API - Create Order": { "main": [[{ "node": "Supabase - Record Initial Payment", "type": "main", "index": 0 }]] },
+    "Supabase - Record Initial Payment": { "main": [[{ "node": "Respond to Frontend", "type": "main", "index": 0 }]] }
+  }
+}

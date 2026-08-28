@@ -1,0 +1,15 @@
+﻿node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+dist/
+build/
+dataset/
+dataset_split/
+runs/
+*.pt
+*.pth
+*.onnx

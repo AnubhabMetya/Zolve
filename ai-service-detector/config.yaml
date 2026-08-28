@@ -1,0 +1,22 @@
+# ai-service-detector:config.yaml:1
+model:
+  base: yolov8n-cls.pt  # n=fast, s=balanced, m=accurate | change to yolov8s-cls.pt for better acc
+  imgsz: 224
+  epochs: 25
+  batch: 16
+  patience: 10
+
+dataset:
+  root: dataset
+  classes: ["messy_room", "washroom_dirty", "washroom_plumbing", "furniture", "walls"]
+
+services:
+  messy_room: "Full House Deep Cleaning"
+  washroom_dirty: "Cleaning Executive (Washroom)"
+  washroom_plumbing: "Plumber"
+  furniture: "Carpenter"
+  walls: "Wall Painting & Waterproofing"
+
+inference:
+  conf_threshold: 0.55
+  show_fps: true
