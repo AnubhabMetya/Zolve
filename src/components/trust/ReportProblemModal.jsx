@@ -14,7 +14,7 @@ const DISPUTE_CATEGORIES = [
 ];
 
 export const ReportProblemModal = () => {
-  const { isReportProblemOpen, setIsReportProblemOpen, bookings, createSupportTicket } = useApp();
+  const { isReportProblemOpen, setIsReportProblemOpen, bookings, createSupportTicket, currentUser, activeRole, setIsAuthModalOpen, setAuthModalTab, addNotification } = useApp();
 
   const [selectedBookingCode, setSelectedBookingCode] = useState(bookings[0]?.bookingCode || 'ZOL-8291');
   const [category, setCategory] = useState(DISPUTE_CATEGORIES[0]);
@@ -25,16 +25,26 @@ export const ReportProblemModal = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({
+        title: 'Sign in required',
+        message: 'Please join as a User to report a problem or raise a dispute.',
+        type: 'system'
+      });
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return;
+    }
     setIsSubmitting(true);
 
-    createSupportTicket({
+    const result = createSupportTicket({
       bookingCode: selectedBookingCode,
       category,
       description
     });
 
     setIsSubmitting(false);
-    setIsReportProblemOpen(false);
+    if (result) setIsReportProblemOpen(false);
   };
 
   return (

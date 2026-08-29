@@ -11,6 +11,14 @@ CLASSES = [
     "furniture",
     "ac_unit",
     "walls",
+    "gardening",
+    "pest_control",
+    "home_chef",
+    "elder_care",
+    "moving",
+    "society_sanitization",
+    "sump_tank",
+    "event_setup",
 ]
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -22,8 +30,13 @@ for class_name in CLASSES:
     train_dir = DATASET / "train" / class_name
     val_dir = DATASET / "val" / class_name
 
-    train_dir.mkdir(parents=True, exist_ok=True)
-    val_dir.mkdir(parents=True, exist_ok=True)
+    # Clear stale outputs before writing new split — prevents deleted/moved
+    # source images from remaining in dataset/train or dataset/val and
+    # causing reported counts to diverge from actual training data.
+    for d in (train_dir, val_dir):
+        if d.exists():
+            shutil.rmtree(d)
+        d.mkdir(parents=True, exist_ok=True)
 
     images = [
         p for p in source.iterdir()

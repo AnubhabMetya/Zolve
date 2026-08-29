@@ -75,6 +75,17 @@ export const AppProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Community — persisted per-browser joins + real participant counts
+  const [joinedProjects, setJoinedProjects] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_community_joins`);
+    try { return saved ? JSON.parse(saved) : {}; } catch { return {}; }
+  });
+
+  const [communityProjects, setCommunityProjects] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_community_projects`);
+    try { return saved ? JSON.parse(saved) : COMMUNITY_PROJECTS; } catch { return COMMUNITY_PROJECTS; }
+  });
+
   const [notifications, setNotifications] = useState([
     {
       id: 'notif-1',
@@ -113,6 +124,8 @@ export const AppProvider = ({ children }) => {
   const [activeBookingForReview, setActiveBookingForReview] = useState(null);
   const [activePaymentForInvoice, setActivePaymentForInvoice] = useState(null);
   const [isReportProblemOpen, setIsReportProblemOpen] = useState(false);
+  // Direct booking prefill from image detector (service + images)
+  const [bookingPrefill, setBookingPrefill] = useState(null); // { serviceId, serviceName, images: File[], detectedAt }
 
   // Sync to localStorage
   useEffect(() => {
@@ -139,6 +152,14 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_exec_apps`, JSON.stringify(executiveApplications));
   }, [executiveApplications]);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}_community_joins`, JSON.stringify(joinedProjects));
+  }, [joinedProjects]);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}_community_projects`, JSON.stringify(communityProjects));
+  }, [communityProjects]);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_theme`, theme);
@@ -488,12 +509,56 @@ export const AppProvider = ({ children }) => {
     });
   };
 
-  // Support / Dispute Ticket Creation
+  // Community — per-browser persisted join + numeric count
+  const joinCommunityProject = (projId) => {
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({
+        title: 'Sign in required',
+        message: 'Please sign in as a User (Join as User) to volunteer for Community drives.',
+        type: 'system'
+      });
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    if (joinedProjects[projId]) return true;
+    setJoinedProjects((prev) => ({ ...prev, [projId]: true }));
+    setCommunityProjects((prev) =>
+      prev.map((p) =>
+        p.id === projId
+          ? {
+              ...p,
+              participantsCount: (p.participantsCount || 0) + 1,
+              participants: `${(p.participantsCount || 0) + 1} Volunteers`
+            }
+          : p
+      )
+    );
+    const proj = communityProjects.find((p) => p.id === projId);
+    addNotification({
+      title: 'Registered for Community Civic Drive!',
+      message: `You registered for "${proj?.title || projId}". Details & coordinates sent to your registered Gmail.`,
+      type: 'coop'
+    });
+    return true;
+  };
+
+  // Support / Dispute Ticket Creation — only for signed-in users (Join as User)
   const createSupportTicket = (ticketData) => {
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({
+        title: 'Sign in required',
+        message: 'Please join as a User (Join as User) to report a problem or raise a dispute. Other roles cannot raise tickets.',
+        type: 'system'
+      });
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return null;
+    }
     const newTicket = {
       id: `tkt-${Date.now()}`,
       ticketCode: `TCK-${Math.floor(1000 + Math.random() * 9000)}`,
-      userName: currentUser?.name || 'Anonymous User',
+      userName: currentUser.name,
       userRole: activeRole,
       createdAt: new Date().toISOString(),
       status: 'open',
@@ -577,7 +642,10 @@ export const AppProvider = ({ children }) => {
         createProposal,
         trainingModules,
         enrollTraining,
-        communityProjects: COMMUNITY_PROJECTS,
+        communityProjects,
+        setCommunityProjects,
+        joinedProjects,
+        joinCommunityProject,
         societyData,
         setSocietyData,
         earningsLedger,
@@ -611,7 +679,9 @@ export const AppProvider = ({ children }) => {
         activePaymentForInvoice,
         setActivePaymentForInvoice,
         isReportProblemOpen,
-        setIsReportProblemOpen
+        setIsReportProblemOpen,
+        bookingPrefill,
+        setBookingPrefill
       }}
     >
       {children}

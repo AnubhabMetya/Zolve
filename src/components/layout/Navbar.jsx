@@ -83,16 +83,16 @@ export const Navbar = () => {
       <header
         className={`z-50 backdrop-blur-md will-change-transform
           ${isFloating
-            ? 'fixed top-5 sm:top-6 left-1/2 -translate-x-1/2 w-[96%] sm:w-[94%] md:w-[92%] lg:w-[90%] xl:w-[86%] 2xl:w-[84%] max-w-[1280px] rounded-[16px] sm:rounded-[20px] lg:rounded-[24px] bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700/60 shadow-[0_12px_40px_-12px_rgba(11,19,43,0.18),0_6px_16px_-6px_rgba(11,19,43,0.10),0_0_0_1px_rgba(0,0,0,0.03)] scale-[0.995] sm:scale-[0.98]'
+            ? 'fixed top-5 sm:top-6 left-1/2 -translate-x-1/2 -ml-2 sm:-ml-3 lg:-ml-3.5 w-[96%] sm:w-[95%] md:w-[94%] lg:w-[92%] xl:w-[88%] 2xl:w-[86%] max-w-[1320px] rounded-[16px] sm:rounded-[20px] lg:rounded-[24px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-[0_12px_40px_-12px_rgba(11,19,43,0.18),0_6px_16px_-6px_rgba(11,19,43,0.10),0_0_0_1px_rgba(0,0,0,0.04)] scale-[0.998] sm:scale-[0.985] overflow-visible'
             : 'sticky top-0 w-full rounded-none bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 shadow-none scale-100'
           }
           transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)]
         `}
       >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className={`max-w-7xl mx-auto transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${isFloating ? 'px-3 sm:px-4 lg:px-6' : 'px-4 sm:px-6 lg:px-8'}`}>
         <div className={`flex items-center justify-between transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${isFloating ? 'h-[62px] sm:h-[66px]' : 'h-20'}`}>
           {/* Brand Logo & Tagline */}
-          <div className="flex items-center gap-6">
+          <div className={`flex items-center transition-all duration-[400ms] ${isFloating ? 'gap-3 lg:gap-5' : 'gap-6'}`}>
             <button
               onClick={() => handleNavClick('home')}
               className="flex items-center gap-3 group text-left focus:outline-none"
@@ -128,7 +128,7 @@ export const Navbar = () => {
           </div>
 
           {/* Desktop Navigation Links (Role Dependent) */}
-          <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-4 lg:ml-8 xl:ml-10">
+          <nav className={`hidden md:flex items-center gap-1 lg:gap-2 transition-all duration-[400ms] ${isFloating ? 'ml-2 lg:ml-4 xl:ml-6' : 'ml-4 lg:ml-8 xl:ml-10'}`}>
             {!currentUser ? (
               // Public Navigation
               <>
@@ -301,7 +301,7 @@ export const Navbar = () => {
           </nav>
 
           {/* Right Action Icons & Auth Controls */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className={`flex items-center shrink-0 transition-all duration-[400ms] ${isFloating ? 'gap-1.5 sm:gap-2' : 'gap-2.5 sm:gap-3'}`}>
             {/* Dark Mode Toggle — visible on all pages including landing */}
             <button
               onClick={toggleTheme}
@@ -493,22 +493,16 @@ export const Navbar = () => {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setAuthModalTab('signin'); setIsAuthModalOpen(true); }}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
-                >
-                  Sign In
-                </button>
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => { setAuthModalTab('register'); setIsAuthModalOpen(true); }}
-                  className="px-4 py-1.5 rounded-lg bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-sm transition-colors"
+                  className="px-4 py-1.5 rounded-lg bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap"
                 >
                   Join as User
                 </button>
                 <button
                   onClick={() => setActiveTab('join-executive')}
-                  className="hidden sm:inline-flex px-3.5 py-1.5 rounded-lg bg-white border border-brand-200 text-brand-900 hover:bg-brand-50 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 dark:hover:bg-slate-700 text-xs font-bold transition-colors"
+                  className="inline-flex px-3.5 py-1.5 rounded-lg bg-white border-2 border-slate-300 text-brand-900 hover:bg-slate-50 hover:border-slate-400 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:bg-slate-800 dark:text-white dark:border-slate-500 dark:hover:bg-slate-700 dark:hover:border-slate-400 dark:shadow-none text-xs font-bold transition-all whitespace-nowrap"
                 >
                   Join as Executive
                 </button>

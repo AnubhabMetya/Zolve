@@ -36,10 +36,10 @@ export const AuthModal = () => {
   const [authMode, setAuthMode] = useState('otp_flow');
   const [step, setStep] = useState(1); // 1: Input details -> 2: Enter OTP
 
-  // User input fields
-  const [fullName, setFullName] = useState('Anubhab Metya');
-  const [mobileNumber, setMobileNumber] = useState('+91 98765 43210');
-  const [gmailAddress, setGmailAddress] = useState('anubhab.metya@gmail.com');
+  // User input fields — generic as requested, interactive/editable
+  const [fullName, setFullName] = useState('User');
+  const [mobileNumber, setMobileNumber] = useState('+91 ');
+  const [gmailAddress, setGmailAddress] = useState('User@gmail.com');
   const [selectedRole, setSelectedRole] = useState('customer'); // 'customer' | 'provider'
 
   // OTP State
@@ -444,7 +444,7 @@ export const AuthModal = () => {
                       </button>
                     </div>
 
-                    {/* Input: Full Name */}
+                    {/* Input: Full Name — generic User, interactive/clickable */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
                       <div className="relative">
@@ -454,13 +454,13 @@ export const AuthModal = () => {
                           required
                           value={fullName}
                           onChange={(e) => setFullName(e.target.value)}
-                          placeholder="e.g. Anubhab Metya"
-                          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                          placeholder="User"
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
                         />
                       </div>
                     </div>
 
-                    {/* Input: Mobile Number */}
+                    {/* Input: Mobile Number — only +91 prefix, rest empty */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Number</label>
                       <div className="relative">
@@ -470,13 +470,13 @@ export const AuthModal = () => {
                           required
                           value={mobileNumber}
                           onChange={(e) => setMobileNumber(e.target.value)}
-                          placeholder="+91 98765 43210"
+                          placeholder="+91 "
                           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
                         />
                       </div>
                     </div>
 
-                    {/* Input: Gmail Address */}
+                    {/* Input: Gmail — generic User@gmail.com, interactive/clickable */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
                         Gmail / Email Address
@@ -488,8 +488,8 @@ export const AuthModal = () => {
                           required
                           value={gmailAddress}
                           onChange={(e) => setGmailAddress(e.target.value)}
-                          placeholder="yourname@gmail.com"
-                          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                          placeholder="User@gmail.com"
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white"
                         />
                       </div>
                     </div>

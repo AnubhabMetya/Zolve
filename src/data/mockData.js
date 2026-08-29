@@ -841,6 +841,7 @@ export const COMMUNITY_PROJECTS = [
     date: "August 30, 2026",
     location: "100ft Road & BDA Complex Neighborhood",
     participants: "38 Cooperative Providers + 65 Residents",
+    participantsCount: 103,
     impact: "Cleaned 2.4 km of rainwater channels preventing monsoon stagnation.",
     image: "https://images.unsplash.com/photo-1558441719-8b449c6ff673?w=500&auto=format&fit=crop&q=80",
     category: "Civic Action"
@@ -851,6 +852,7 @@ export const COMMUNITY_PROJECTS = [
     date: "Ongoing Weekly Drive",
     location: "Koramangala 4th Block & HSR Sector 2",
     participants: "18 Certified Electrician Members",
+    participantsCount: 18,
     impact: "Inspected 84 households, fixed 42 grounding leakages free of charge.",
     image: "https://images.unsplash.com/photo-1516738901171-8eb4fc13bd20?w=500&auto=format&fit=crop&q=80",
     category: "Elder Care"
@@ -861,6 +863,7 @@ export const COMMUNITY_PROJECTS = [
     date: "September 15, 2026",
     location: "Zolve East Skill Center",
     participants: "25 Apprentice Graduates",
+    participantsCount: 25,
     impact: "Funded complete professional toolkit kits for newly certified youth.",
     image: "https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?w=500&auto=format&fit=crop&q=80",
     category: "Youth Upliftment"

@@ -8,14 +8,23 @@ model:
 
 dataset:
   root: dataset
-  classes: ["messy_room", "washroom_dirty", "washroom_plumbing", "furniture", "walls"]
+  classes: ["messy_room", "washroom_dirty", "washroom_plumbing", "furniture", "ac_unit", "walls", "gardening", "pest_control", "home_chef", "elder_care", "moving", "society_sanitization", "sump_tank", "event_setup"]
 
 services:
   messy_room: "Full House Deep Cleaning"
   washroom_dirty: "Cleaning Executive (Washroom)"
-  washroom_plumbing: "Plumber"
-  furniture: "Carpenter"
+  washroom_plumbing: "Plumbing Repair & Leakage Fix"
+  furniture: "Carpentry & Furniture Assembly"
+  ac_unit: "AC Deep Foam Jet Servicing"
   walls: "Wall Painting & Waterproofing"
+  gardening: "Gardening & Balcony Greenery"
+  pest_control: "Organic Pest Control"
+  home_chef: "Home Chef & Meal Preparation"
+  elder_care: "Elder Assistance & Companionship"
+  moving: "Moving & Heavy Lifting Assistance"
+  society_sanitization: "Society Common Area Sanitization"
+  sump_tank: "Water Sump & Overhead Tank Cleaning"
+  event_setup: "Community Event Sound & Electrical Setup"
 
 inference:
   conf_threshold: 0.55

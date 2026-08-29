@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   X,
@@ -30,7 +30,9 @@ export const BookingModal = () => {
     setIsAuthModalOpen,
     setAuthModalTab,
     zolveMoney,
-    redeemZolveMoney
+    redeemZolveMoney,
+    bookingPrefill,
+    setBookingPrefill
   } = useApp();
 
   const [step, setStep] = useState(1); // 1: Details & AI -> 2: Date & Slot -> 3: Address -> 4: Price Summary & Pay -> 5: Razorpay Simulator Modal
@@ -39,6 +41,23 @@ export const BookingModal = () => {
 
   // Form Inputs
   const [serviceDescription, setServiceDescription] = useState('Circuit breaker tripping and spark near kitchen switchboard.');
+
+  // Prefill from image AI detector — allow anonymous upload → direct booking
+  useEffect(() => {
+    if (bookingPrefill?.serviceName) {
+      const conf = bookingPrefill.confidence ? ` (AI ${Math.round(bookingPrefill.confidence * 100)}% confidence)` : '';
+      const sol = bookingPrefill.solution ? bookingPrefill.solution.join(' • ') : '';
+      const prob = bookingPrefill.problem || '';
+      setServiceDescription(`AI Detected: ${bookingPrefill.serviceName}${conf} — ${prob}. Suggested: ${sol}`.trim());
+    }
+  }, [bookingPrefill]);
+
+  // Also watch for direct provider change from image detector (sync description)
+  useEffect(() => {
+    if (bookingPrefill && p && p.title !== bookingPrefill.serviceName) {
+      // provider title already set via detector; keep description in sync
+    }
+  }, [p, bookingPrefill]);
   const [selectedDate, setSelectedDate] = useState('2026-08-27');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
   const [selectedAddress, setSelectedAddress] = useState(
@@ -121,7 +140,7 @@ export const BookingModal = () => {
       if (requestedRedeem > 0) {
         redeemZolveMoney(requestedRedeem, 'pending');
       }
-      // Step 3: Create confirmed booking in application state
+      // Step 3: Create confirmed booking in application state (with AI image prefill if present)
       const finalBooking = createBooking({
         providerId: p.id,
         providerName: p.name,
@@ -129,8 +148,12 @@ export const BookingModal = () => {
         providerPhone: p.phone,
         providerTitle: p.title,
         isCoopMember: p.isCoopMember,
-        serviceId: 'srv-user-selected',
-        serviceName: p.title,
+        serviceId: bookingPrefill?.serviceId || 'srv-user-selected',
+        serviceName: bookingPrefill?.serviceName || p.title,
+        bookingImages: bookingPrefill?.images || [],
+        aiDetected: !!bookingPrefill,
+        aiConfidence: bookingPrefill?.confidence,
+        aiProblem: bookingPrefill?.problem,
         category: p.serviceCategories?.[0] || 'Household',
         address: isCustomAddress ? customAddress : selectedAddress,
         scheduledDate: selectedDate,
@@ -152,6 +175,7 @@ export const BookingModal = () => {
       setIsProcessingPayment(false);
       setIsRazorpayModalOpen(false);
       setSelectedProviderForBooking(null);
+      setBookingPrefill(null);
       setActiveBookingForTracking(finalBooking);
     }
   };
@@ -177,7 +201,7 @@ export const BookingModal = () => {
             </div>
 
             <button
-              onClick={() => setSelectedProviderForBooking(null)}
+              onClick={() => { setSelectedProviderForBooking(null); setBookingPrefill(null); }}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200"
             >
               <X className="w-5 h-5" />
@@ -205,6 +229,32 @@ export const BookingModal = () => {
                     Provide context so {p.name} carries the required parts and diagnostic tools.
                   </p>
                 </div>
+
+                {/* AI Image Detection Prefill — anonymous upload allowed */}
+                {bookingPrefill && (
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-br from-brand-50 to-coop-50 border border-brand-200/60 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-brand-900">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      <span>AI Detected: {bookingPrefill.serviceName}</span>
+                      {bookingPrefill.confidence && (
+                        <span className="ml-1 px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[11px] text-slate-700">
+                          {(bookingPrefill.confidence * 100).toFixed(0)}% confidence
+                        </span>
+                      )}
+                      <span className="ml-auto text-[10px] font-normal text-slate-500">from uploaded photo</span>
+                    </div>
+                    {bookingPrefill.problem && <p className="text-xs text-slate-700">Problem: {bookingPrefill.problem}</p>}
+                    {bookingPrefill.solution && <p className="text-xs text-slate-600">Fix: {bookingPrefill.solution.join(' • ')}</p>}
+                    {bookingPrefill.images && bookingPrefill.images.length > 0 && (
+                      <div className="flex gap-1.5 flex-wrap pt-1">
+                        {bookingPrefill.images.map((img, i) => (
+                          <img key={i} src={img.url} alt={img.name} className="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-sm" />
+                        ))}
+                        <span className="self-center text-[11px] text-slate-500">+{bookingPrefill.images.length} photo(s) will be attached to booking</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Problem Description</label>
@@ -508,7 +558,7 @@ export const BookingModal = () => {
             ) : (
               <button
                 type="button"
-                onClick={() => setSelectedProviderForBooking(null)}
+                onClick={() => { setSelectedProviderForBooking(null); setBookingPrefill(null); }}
                 className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
               >
                 Cancel

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   HeartHandshake,
@@ -19,18 +19,7 @@ import {
 } from 'lucide-react';
 
 export const CommunityPortal = () => {
-  const { communityProjects, currentUser, addNotification, setActiveTab } = useApp();
-
-  const [joinedProjects, setJoinedProjects] = useState({});
-
-  const handleJoinDrive = (projId, title) => {
-    setJoinedProjects((prev) => ({ ...prev, [projId]: true }));
-        addNotification({
-      title: 'Registered for Community Civic Drive!',
-      message: `You registered for "${title}". Details & coordinates sent to your registered Gmail.`,
-      type: 'coop'
-    });
-  };
+  const { communityProjects, joinedProjects, joinCommunityProject, currentUser, activeRole, setActiveTab } = useApp();
 
   return (
     <div className="space-y-12 pb-16">
@@ -138,7 +127,7 @@ export const CommunityPortal = () => {
                     </div>
 
                     <button
-                      onClick={() => handleJoinDrive(proj.id, proj.title)}
+                      onClick={() => joinCommunityProject(proj.id)}
                       className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                         hasJoined
                           ? 'bg-coop-50 text-coop-700 border border-coop-300'

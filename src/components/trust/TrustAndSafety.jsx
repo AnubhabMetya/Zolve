@@ -14,7 +14,21 @@ import {
 } from 'lucide-react';
 
 export const TrustAndSafety = () => {
-  const { setIsReportProblemOpen, supportTickets } = useApp();
+  const { setIsReportProblemOpen, supportTickets, currentUser, activeRole, setIsAuthModalOpen, setAuthModalTab, addNotification } = useApp();
+
+  const handleReportClick = () => {
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({
+        title: 'Sign in required',
+        message: 'Please join as a User to report a problem or raise a dispute.',
+        type: 'system'
+      });
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsReportProblemOpen(true);
+  };
 
   return (
     <div className="space-y-12 pb-16">
@@ -36,11 +50,12 @@ export const TrustAndSafety = () => {
 
           <div className="pt-2 flex flex-wrap items-center gap-3">
             <button
-              onClick={() => setIsReportProblemOpen(true)}
+              onClick={handleReportClick}
               className="px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md transition-colors flex items-center gap-2"
             >
               <AlertTriangle className="w-4 h-4" />
               <span>Report a Problem / Raise Dispute</span>
+              {(!currentUser || activeRole !== 'customer') && <span className="ml-1 px-2 py-0.5 rounded-full bg-white/20 text-white text-[10px]">Sign in as User required</span>}
             </button>
           </div>
         </div>

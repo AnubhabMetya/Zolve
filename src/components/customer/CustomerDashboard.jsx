@@ -23,6 +23,7 @@ import {
   Moon
 } from 'lucide-react';
 import { classifyServiceQuery } from '../../services/aiEngine';
+import { ImageServiceDetector } from '../ai/ImageServiceDetector';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -231,6 +232,15 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
             ))}
           </motion.div>
         </div>
+      </motion.div>
+
+      {/* 1b. IMAGE-TO-SERVICE AI DETECTOR — anonymous upload -> direct BookingModal */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.55, duration: 0.4 }}
+      >
+        <ImageServiceDetector />
       </motion.div>
 
       {/* 2. UPCOMING / ACTIVE BOOKINGS WIDGET */}

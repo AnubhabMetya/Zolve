@@ -18,10 +18,29 @@ import {
 } from 'lucide-react';
 
 export const SocietyDashboard = () => {
-  const { societyData, addNotification, executiveApplications, approveExecutiveApplication, rejectExecutiveApplication, currentUser } = useApp();
+  const { societyData, addNotification, executiveApplications, approveExecutiveApplication, rejectExecutiveApplication, currentUser, activeRole, setIsAuthModalOpen, setAuthModalTab } = useApp();
 
   const [requests, setRequests] = useState(societyData.activeRequests);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  const requireUserAuth = () => {
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({
+        title: 'Sign in required',
+        message: 'Please sign in as a User (Join as User) to raise a Society ticket.',
+        type: 'system'
+      });
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleRaiseTicketClick = () => {
+    if (!requireUserAuth()) return;
+    setIsCreateModalOpen(true);
+  };
 
   // New Request Form Inputs
   const [unitBlock, setUnitBlock] = useState('Block B - 3rd Floor Lobby');
@@ -31,6 +50,7 @@ export const SocietyDashboard = () => {
 
   const handleCreateRequest = (e) => {
     e.preventDefault();
+    if (!requireUserAuth()) return;
     const newReq = {
       id: `soc-req-${Date.now()}`,
       unit: unitBlock,
@@ -76,11 +96,12 @@ export const SocietyDashboard = () => {
         </div>
 
         <button
-          onClick={() => setIsCreateModalOpen(true)}
+          onClick={handleRaiseTicketClick}
           className="relative z-10 px-5 py-3 rounded-xl bg-coop-600 hover:bg-coop-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 self-start md:self-auto"
         >
           <Plus className="w-4 h-4" />
           <span>Raise Society Ticket</span>
+          {(!currentUser || activeRole !== 'customer') && <ShieldCheck className="w-3.5 h-3.5 opacity-70" />}
         </button>
       </div>
 

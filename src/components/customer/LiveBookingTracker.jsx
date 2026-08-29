@@ -35,8 +35,27 @@ export const LiveBookingTracker = () => {
     sendBookingChatMessage,
     setActiveBookingForReview,
     setActivePaymentForInvoice,
-    setIsReportProblemOpen
+    setIsReportProblemOpen,
+    currentUser,
+    activeRole,
+    setIsAuthModalOpen,
+    setAuthModalTab,
+    addNotification
   } = useApp();
+
+  const handleDisputeClick = () => {
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({
+        title: 'Sign in required',
+        message: 'Please join as a User to raise a dispute.',
+        type: 'system'
+      });
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsReportProblemOpen(true);
+  };
 
   const [chatInput, setChatInput] = useState('');
 
@@ -341,7 +360,7 @@ export const LiveBookingTracker = () => {
                 </button>
 
                 <button
-                  onClick={() => setIsReportProblemOpen(true)}
+                  onClick={handleDisputeClick}
                   className="px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold flex items-center gap-1"
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
