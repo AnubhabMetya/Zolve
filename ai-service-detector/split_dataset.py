@@ -1,30 +1,52 @@
-"""
-ai-service-detector:split_dataset.py:1
-Optional: Manually split dataset into train/val if you prefer explicit folders.
-YOLO cls trainer can handle flat structure, but this helps for debugging.
-"""
-import shutil, random
 from pathlib import Path
+import random
+import shutil
 
-SRC = Path("dataset")
-DST = Path("dataset_split")
-RATIO = 0.8
+DATASET = Path("dataset")
+
+CLASSES = [
+    "messy_room",
+    "washroom_dirty",
+    "washroom_plumbing",
+    "furniture",
+    "ac_unit",
+    "walls",
+]
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
 random.seed(42)
 
-def split():
-    for cls_dir in SRC.iterdir():
-        if not cls_dir.is_dir(): continue
-        imgs = list(cls_dir.glob("*.jpg")) + list(cls_dir.glob("*.png")) + list(cls_dir.glob("*.jpeg"))
-        if not imgs: continue
-        random.shuffle(imgs)
-        n_train = int(len(imgs)*RATIO)
-        for i, p in enumerate(imgs):
-            split = "train" if i < n_train else "val"
-            dest = DST / split / cls_dir.name
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, dest / p.name)
-        print(f"{cls_dir.name}: {n_train} train / {len(imgs)-n_train} val")
-    print(f"Done -> {DST.resolve()}")
+for class_name in CLASSES:
+    source = DATASET / class_name
+    train_dir = DATASET / "train" / class_name
+    val_dir = DATASET / "val" / class_name
 
-if __name__ == "__main__":
-    split()
+    train_dir.mkdir(parents=True, exist_ok=True)
+    val_dir.mkdir(parents=True, exist_ok=True)
+
+    images = [
+        p for p in source.iterdir()
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+
+    random.shuffle(images)
+
+    split_index = int(len(images) * 0.8)
+
+    train_images = images[:split_index]
+    val_images = images[split_index:]
+
+    for image in train_images:
+        shutil.copy2(image, train_dir / image.name)
+
+    for image in val_images:
+        shutil.copy2(image, val_dir / image.name)
+
+    print(
+        f"{class_name}: "
+        f"{len(train_images)} train, "
+        f"{len(val_images)} validation"
+    )
+
+print("\nDataset split completed.")

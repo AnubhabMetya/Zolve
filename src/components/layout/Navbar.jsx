@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   Sparkles,
@@ -49,15 +49,48 @@ export const Navbar = () => {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  const [isFloating, setIsFloating] = useState(false);
+
+  useEffect(() => {
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const y = window.scrollY || window.pageYOffset;
+          // 40–80px threshold as per spec — use 60px as sweet spot
+          setIsFloating(y > 60);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    // initial check
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const handleNavClick = (tabKey) => {
     setActiveTab(tabKey);
     setIsMobileMenuOpen(false);
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-all">
+    <>
+      {/* Spacer to prevent layout jump when header becomes fixed */}
+      {isFloating && <div className="h-20 hidden sm:block" aria-hidden="true" />}
+      {isFloating && <div className="h-[68px] sm:hidden" aria-hidden="true" />}
+      <header
+        className={`z-50 backdrop-blur-md will-change-transform
+          ${isFloating
+            ? 'fixed top-5 sm:top-6 left-1/2 -translate-x-1/2 w-[96%] sm:w-[94%] md:w-[92%] lg:w-[90%] xl:w-[86%] 2xl:w-[84%] max-w-[1280px] rounded-[16px] sm:rounded-[20px] lg:rounded-[24px] bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700/60 shadow-[0_12px_40px_-12px_rgba(11,19,43,0.18),0_6px_16px_-6px_rgba(11,19,43,0.10),0_0_0_1px_rgba(0,0,0,0.03)] scale-[0.995] sm:scale-[0.98]'
+            : 'sticky top-0 w-full rounded-none bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 shadow-none scale-100'
+          }
+          transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)]
+        `}
+      >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+        <div className={`flex items-center justify-between transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${isFloating ? 'h-[62px] sm:h-[66px]' : 'h-20'}`}>
           {/* Brand Logo & Tagline */}
           <div className="flex items-center gap-6">
             <button
@@ -86,7 +119,7 @@ export const Navbar = () => {
             {/* Location Selector (Customer & Public View) */}
             <button
               onClick={() => setIsLocationModalOpen(true)}
-              className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/90 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold transition-colors border border-slate-200/60"
+              className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/90 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold transition-colors border border-slate-200/60 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 mr-2"
             >
               <MapPin className="w-3.5 h-3.5 text-coop-600" />
               <span className="max-w-[140px] truncate">{selectedLocation}</span>
@@ -95,7 +128,7 @@ export const Navbar = () => {
           </div>
 
           {/* Desktop Navigation Links (Role Dependent) */}
-          <nav className="hidden md:flex items-center gap-1 lg:gap-2">
+          <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-4 lg:ml-8 xl:ml-10">
             {!currentUser ? (
               // Public Navigation
               <>
@@ -463,21 +496,21 @@ export const Navbar = () => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setAuthModalTab('signin'); setIsAuthModalOpen(true); }}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
                 >
                   Sign In
-                </button>
-                <button
-                  onClick={() => setActiveTab('join-executive')}
-                  className="hidden sm:inline-flex px-3.5 py-1.5 rounded-lg bg-white border border-brand-200 text-brand-900 hover:bg-brand-50 text-xs font-bold transition-colors"
-                >
-                  Join as Executive
                 </button>
                 <button
                   onClick={() => { setAuthModalTab('register'); setIsAuthModalOpen(true); }}
                   className="px-4 py-1.5 rounded-lg bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-sm transition-colors"
                 >
                   Join as User
+                </button>
+                <button
+                  onClick={() => setActiveTab('join-executive')}
+                  className="hidden sm:inline-flex px-3.5 py-1.5 rounded-lg bg-white border border-brand-200 text-brand-900 hover:bg-brand-50 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 dark:hover:bg-slate-700 text-xs font-bold transition-colors"
+                >
+                  Join as Executive
                 </button>
               </div>
             )}
@@ -536,6 +569,7 @@ export const Navbar = () => {
           )}
         </div>
       )}
-    </header>
+      </header>
+    </>
   );
 };

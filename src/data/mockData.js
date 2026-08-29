@@ -239,7 +239,7 @@ export const SERVICE_CATEGORIES = [
         timeEst: "1 - 2 hours",
         rating: 4.87,
         popular: false,
-        image: "https://images.unsplash.com/photo-1584727638096-042c45049ebe?w=600&auto=format&fit=crop&q=80"
+        image: "/organic-pest-control.jpg"
       }
     ]
   },
@@ -324,7 +324,7 @@ export const SERVICE_CATEGORIES = [
         timeEst: "5 hours",
         rating: 4.9,
         popular: false,
-        image: "https://images.unsplash.com/photo-1541888946425-d0fbb18f15f6?w=600&auto=format&fit=crop&q=80"
+        image: "/water-sump-tank-cleaning.jpg"
       },
       {
         id: "srv-soc-event-01",
