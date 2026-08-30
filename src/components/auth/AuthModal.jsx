@@ -274,7 +274,7 @@ export const AuthModal = () => {
           <div className="relative z-10 space-y-6">
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-coop-500 flex items-center justify-center text-white font-black text-2xl shadow-glow">
+              <div className="w-12 h-12 rounded-2xl bg-black border border-white/20 flex items-center justify-center text-white font-black text-2xl shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
                 Z
               </div>
               <div>

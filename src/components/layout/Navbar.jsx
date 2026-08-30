@@ -97,9 +97,9 @@ export const Navbar = () => {
               onClick={() => handleNavClick('home')}
               className="flex items-center gap-3 group text-left focus:outline-none"
             >
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-900 via-brand-800 to-coop-700 flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+              <div className="w-11 h-11 rounded-xl bg-black border border-white/10 flex items-center justify-center shadow-[0_4px_12px_rgba(0,0,0,0.35)] group-hover:scale-105 transition-transform">
                 <span className="text-2xl font-black text-white tracking-tight">Z</span>
-                <span className="w-2 h-2 rounded-full bg-coop-400 -ml-1 mt-3 animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-white -ml-1 mt-3 animate-pulse border border-black"></span>
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
@@ -122,7 +122,7 @@ export const Navbar = () => {
               className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/90 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold transition-colors border border-slate-200/60 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 mr-2"
             >
               <MapPin className="w-3.5 h-3.5 text-coop-600" />
-              <span className="max-w-[140px] truncate">{selectedLocation}</span>
+              <span className="max-w-[140px] truncate">{typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'Select location'}</span>
               <ChevronDown className="w-3 h-3 text-slate-400" />
             </button>
           </div>
@@ -493,16 +493,16 @@ export const Navbar = () => {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-col gap-1.5 shrink-0 items-stretch">
                 <button
                   onClick={() => { setAuthModalTab('register'); setIsAuthModalOpen(true); }}
-                  className="px-4 py-1.5 rounded-lg bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap"
+                  className="w-full px-4 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap text-center"
                 >
                   Join as User
                 </button>
                 <button
                   onClick={() => setActiveTab('join-executive')}
-                  className="inline-flex px-3.5 py-1.5 rounded-lg bg-white border-2 border-slate-300 text-brand-900 hover:bg-slate-50 hover:border-slate-400 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:bg-slate-800 dark:text-white dark:border-slate-500 dark:hover:bg-slate-700 dark:hover:border-slate-400 dark:shadow-none text-xs font-bold transition-all whitespace-nowrap"
+                  className="w-full inline-flex justify-center px-3.5 py-1.5 rounded-lg bg-white border-2 border-black text-black hover:bg-zinc-50 hover:border-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:bg-white dark:text-black dark:border-black dark:hover:bg-zinc-100 text-xs font-bold transition-all whitespace-nowrap"
                 >
                   Join as Executive
                 </button>

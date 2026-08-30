@@ -105,7 +105,15 @@ export const AppProvider = ({ children }) => {
     }
   ]);
 
-  const [selectedLocation, setSelectedLocation] = useState('Indiranagar, Bengaluru');
+  const [selectedLocation, setSelectedLocation] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_location`);
+    try { return saved ? JSON.parse(saved) : { name: 'Indiranagar, Bengaluru', lat: 12.9784, lng: 77.6408 }; } catch { return { name: 'Indiranagar, Bengaluru', lat: 12.9784, lng: 77.6408 }; }
+  });
+  // provider live locations keyed by bookingId: { lat,lng, updatedAt, bookingId }
+  const [providerLiveLocations, setProviderLiveLocations] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_live_locs`);
+    try { return saved ? JSON.parse(saved) : {}; } catch { return {}; }
+  });
   const [activeTab, setActiveTab] = useState('home'); // active navigation view
   const [theme, setTheme] = useState(() => localStorage.getItem(`${STORAGE_KEY_PREFIX}_theme`) || 'light');
   const [zolveMoney, setZolveMoney] = useState(() => {
@@ -170,6 +178,32 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_zolve_money`, JSON.stringify(zolveMoney));
   }, [zolveMoney]);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}_location`, JSON.stringify(selectedLocation));
+  }, [selectedLocation]);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}_live_locs`, JSON.stringify(providerLiveLocations));
+  }, [providerLiveLocations]);
+
+  // Listen for local realtime fallback (same-tab + cross-tab via custom event / storage)
+  useEffect(() => {
+    const onLive = (e) => {
+      const { bookingId, coords } = e.detail || {};
+      if (bookingId && coords) setProviderLiveLocations((prev) => ({ ...prev, [bookingId]: coords }));
+    };
+    window.addEventListener('zolve:live-location', onLive);
+    const onStorage = (e) => {
+      if (e.key?.startsWith(`${STORAGE_KEY_PREFIX}_live_locs`) || e.key?.startsWith('zolve_live_')) {
+        if (e.key.startsWith('zolve_live_') && e.newValue) {
+          try { const c = JSON.parse(e.newValue); if (c.bookingId) setProviderLiveLocations((p) => ({ ...p, [c.bookingId]: c })); } catch { /* ignore */ }
+        }
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener('zolve:live-location', onLive); window.removeEventListener('storage', onStorage); };
+  }, []);
 
   const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
@@ -320,6 +354,12 @@ export const AppProvider = ({ children }) => {
     // Note: balance update is async, but we return intended amount
     addNotification({ title: `Zolve Money Applied: -₹${Math.min(amount, zolveMoney.balance)}`, message: `₹${Math.min(amount, zolveMoney.balance)} deducted from wallet for #${bookingCode}.`, type: 'system' });
     return deducted;
+  };
+
+  const updateProviderLiveLocation = (bookingId, coords) => {
+    setProviderLiveLocations((prev) => ({ ...prev, [bookingId]: { ...coords, bookingId, updatedAt: new Date().toISOString() } }));
+    // also publish via realtime fallback localStorage/BroadcastChannel
+    try { window.dispatchEvent(new CustomEvent('zolve:live-location', { detail: { bookingId, coords: { ...coords, bookingId, updatedAt: new Date().toISOString() } } })); } catch { /* ignore */ }
   };
 
   // Booking Flow Operations
@@ -657,6 +697,9 @@ export const AppProvider = ({ children }) => {
         markNotificationRead,
         selectedLocation,
         setSelectedLocation,
+        providerLiveLocations,
+        setProviderLiveLocations,
+        updateProviderLiveLocation,
         activeTab,
         setActiveTab,
         // Modal toggles

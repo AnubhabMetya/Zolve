@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import MapView from '../common/MapView';
+import { haversineKm, calcETA, interpolatePosition } from '../../services/locationService';
+import { subscribeBookingLocation, publishLocation, isRealtimeEnabled } from '../../services/realtimeService';
 import {
   X,
   CheckCircle2,
@@ -40,7 +43,9 @@ export const LiveBookingTracker = () => {
     activeRole,
     setIsAuthModalOpen,
     setAuthModalTab,
-    addNotification
+    addNotification,
+    providerLiveLocations,
+    updateProviderLiveLocation
   } = useApp();
 
   const handleDisputeClick = () => {
@@ -58,9 +63,60 @@ export const LiveBookingTracker = () => {
   };
 
   const [chatInput, setChatInput] = useState('');
+  const [livePos, setLivePos] = useState(null);
+  const mockIntervalRef = useRef(null);
+
+  // Subscribe to realtime location + mock interpolation fallback
+  useEffect(() => {
+    if (!activeBookingForTracking) return;
+    const booking = activeBookingForTracking;
+    const bookingId = booking.id;
+    // init from context or booking coords
+    const seed = providerLiveLocations[bookingId] || booking.providerCoords || { lat: 12.9279, lng: 77.6271 };
+    const cust = booking.customerCoords || { lat: 12.9784, lng: 77.6408 };
+    setLivePos(seed);
+
+    const sub = subscribeBookingLocation(bookingId, (coords) => {
+      setLivePos(coords);
+      updateProviderLiveLocation(bookingId, coords);
+    });
+    // also listen same-tab custom event
+    const onLocal = (e) => {
+      const d = e.detail;
+      if (d?.bookingId === bookingId && d?.coords) setLivePos(d.coords);
+    };
+    window.addEventListener('zolve:live-location', onLocal);
+
+    // Mock motion when no real provider sharing: interpolate 5% every 3s toward customer
+    if (booking.bookingStatus === 'PROVIDER_ON_THE_WAY') {
+      mockIntervalRef.current = setInterval(() => {
+        setLivePos((prev) => {
+          const cur = prev || seed;
+          // if realtime is active, don't mock aggressively — check freshness
+          const stored = providerLiveLocations[bookingId];
+          const isFresh = stored && Date.now() - new Date(stored.updatedAt || 0).getTime() < 15000;
+          if (isFresh && isRealtimeEnabled()) return cur;
+          const next = interpolatePosition(cur, cust, 0.06);
+          // publish mock so provider view also sees movement if no real GPS
+          if (!isRealtimeEnabled()) publishLocation(bookingId, next);
+          return next;
+        });
+      }, 3000);
+    }
+
+    return () => {
+      sub.unsubscribe();
+      window.removeEventListener('zolve:live-location', onLocal);
+      if (mockIntervalRef.current) clearInterval(mockIntervalRef.current);
+    };
+  }, [activeBookingForTracking?.id]);
 
   if (!activeBookingForTracking) return null;
   const b = activeBookingForTracking;
+  const customerCoords = b.customerCoords || { lat: 12.9784, lng: 77.6408 };
+  const providerCoords = livePos || b.providerCoords || { lat: 12.9279, lng: 77.6271 };
+  const distanceKm = haversineKm(providerCoords.lat, providerCoords.lng, customerCoords.lat, customerCoords.lng);
+  const eta = calcETA(distanceKm);
 
   // Compute current stage index
   const getStageIndex = (status) => {
@@ -177,10 +233,21 @@ export const LiveBookingTracker = () => {
                 </h4>
                 {b.bookingStatus === 'PROVIDER_ON_THE_WAY' && (
                   <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
-                    Estimated Arrival: ~15 mins
+                    ETA: {eta} • {distanceKm.toFixed(2)} km
                   </span>
                 )}
               </div>
+              {/* Live Map — shows when provider is en route */}
+              {b.bookingStatus === 'PROVIDER_ON_THE_WAY' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-coop-700 uppercase flex items-center gap-1"><MapPin className="w-3 h-3" /> Live Tracking {isRealtimeEnabled() ? '(Supabase)' : '(Local mock)'}</span>
+                    <span className="text-[10px] text-slate-500">{providerCoords.lat.toFixed(4)}, {providerCoords.lng.toFixed(4)} → {customerCoords.lat.toFixed(4)}, {customerCoords.lng.toFixed(4)}</span>
+                  </div>
+                  <MapView providerPos={providerCoords} customerPos={customerCoords} height="260px" />
+                  <p className="text-[10px] text-slate-400">Provider marker moves every 3s (mock) or live via GPS when provider shares. Route is straight-line; OSRM routing can replace polyline.</p>
+                </div>
+              )}
 
               <div className="space-y-4 relative pl-6 border-l-2 border-slate-200">
                 {STATUS_STAGES.map((stage, idx) => {

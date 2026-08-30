@@ -246,9 +246,8 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
       {/* 2. UPCOMING / ACTIVE BOOKINGS WIDGET */}
       {activeBookings.length > 0 && (
         <motion.section
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: '-50px' }}
+          initial="visible"
+          animate="visible"
           variants={staggerContainer}
           className="space-y-4"
         >
@@ -295,8 +294,8 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
 
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide ${
                     b.bookingStatus === 'PROVIDER_ON_THE_WAY'
-                      ? 'bg-amber-100 text-amber-800 border border-amber-200 animate-pulse'
-                      : 'bg-coop-50 text-coop-800 border border-coop-200'
+                      ? 'bg-zinc-900 text-white border border-zinc-800 animate-pulse'
+                      : 'bg-zinc-100 text-zinc-900 border border-zinc-300'
                   }`}>
                     {b.bookingStatus.replace(/_/g, ' ')}
                   </span>
@@ -329,11 +328,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
       )}
 
       {/* 3. SERVICE CATEGORIES GRID */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: '-50px' }}
-        variants={staggerContainer}
+      <section
         className="space-y-6"
       >
         <motion.div variants={fadeInUp}>
@@ -362,11 +357,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                 </div>
               </div>
 
-              <motion.div
-                variants={staggerContainer}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
+              <div
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5"
               >
                 {category.services.map((srv) => (
@@ -383,7 +374,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                       {srv.popular && (
-                        <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-sm">
+                        <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-black text-white text-[10px] font-bold shadow-sm border border-white/20">
                           Popular
                         </span>
                       )}
@@ -423,17 +414,16 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                     </div>
                   </motion.div>
                 ))}
-              </motion.div>
+              </div>
             </motion.div>
           ))}
         </div>
-      </motion.section>
+      </section>
 
       {/* 4. RECOMMENDED TOP-RATED & COOPERATIVE PROVIDERS */}
       <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: '-50px' }}
+        initial="visible"
+        animate="visible"
         variants={staggerContainer}
         className="space-y-6"
       >
@@ -551,9 +541,8 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
 
       {/* 5. COOPERATIVE IMPACT BANNER */}
       <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: '-50px' }}
+        initial="visible"
+        animate="visible"
         variants={fadeInUp}
         whileHover={{ scale: 1.005 }}
         className="rounded-3xl bg-gradient-to-r from-coop-900 via-coop-800 to-teal-900 text-white p-6 sm:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg"

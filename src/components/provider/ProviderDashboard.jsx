@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   Award,
@@ -15,8 +15,11 @@ import {
   ShieldCheck,
   Zap,
   Users,
-  Navigation
+  Navigation,
+  Radio
 } from 'lucide-react';
+import { watchPosition, clearWatch, isGeolocationSupported } from '../../services/locationService';
+import { publishLocation, isRealtimeEnabled } from '../../services/realtimeService';
 
 export const ProviderDashboard = () => {
   const {
@@ -25,8 +28,48 @@ export const ProviderDashboard = () => {
     updateBookingStatus,
     setActiveBookingForTracking,
     setActiveTab,
-    addNotification
+    addNotification,
+    updateProviderLiveLocation
   } = useApp();
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareError, setShareError] = useState('');
+  const [lastPos, setLastPos] = useState(null);
+  const watchRef = useRef(null);
+  const activeOnTheWay = bookings.find((b) => b.bookingStatus === 'PROVIDER_ON_THE_WAY');
+
+  useEffect(() => {
+    return () => { if (watchRef.current != null) clearWatch(watchRef.current); };
+  }, []);
+
+  const toggleSharing = () => {
+    if (isSharing) {
+      if (watchRef.current != null) clearWatch(watchRef.current);
+      watchRef.current = null;
+      setIsSharing(false);
+      addNotification({ title: 'Location sharing stopped', message: 'You stopped sharing live location.', type: 'system' });
+      return;
+    }
+    if (!isGeolocationSupported()) { setShareError('Geolocation not supported'); return; }
+    if (window.isSecureContext === false && window.location.hostname !== 'localhost') { setShareError('GPS requires HTTPS — use localhost'); return; }
+    setShareError('');
+    let lastSent = 0;
+    const targetBookingId = activeOnTheWay?.id || bookings[0]?.id;
+    if (!targetBookingId) { setShareError('No active booking to share location for'); return; }
+    watchRef.current = watchPosition((pos) => {
+      if (pos.error) { setShareError(pos.error); return; }
+      setLastPos(pos);
+      const now = Date.now();
+      if (now - lastSent < 5000) return; // throttle 5s
+      // also distance throttle ~10m (approx 0.00009 deg ~10m)
+      lastSent = now;
+      const coords = { lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy, heading: pos.heading, speed: pos.speed };
+      updateProviderLiveLocation(targetBookingId, coords);
+      publishLocation(targetBookingId, coords);
+    });
+    if (watchRef.current == null) { setShareError('Failed to start watchPosition'); return; }
+    setIsSharing(true);
+    addNotification({ title: 'Live location sharing ON', message: `Sharing for #${targetBookingId.slice(0,8)} — customer can track you live. Realtime: ${isRealtimeEnabled() ? 'Supabase' : 'Local mock'}.`, type: 'system' });
+  };
 
   // Find provider's jobs
   const providerName = currentUser?.name || "Rajesh Kumar";
@@ -106,9 +149,22 @@ export const ProviderDashboard = () => {
             <p className="text-xs text-slate-500 mt-1">
               Location Hub: <strong className="text-slate-800">Indiranagar & Koramangala Hub</strong> • Service Status: <span className="text-coop-700 font-bold">Online & Receiving Jobs</span>
             </p>
+            {lastPos && <p className="text-[10px] text-slate-400 mt-1">Last GPS: {lastPos.lat.toFixed(4)}, {lastPos.lng.toFixed(4)} ±{Math.round(lastPos.accuracy)}m • {isRealtimeEnabled() ? 'Supabase Realtime' : 'Local mock'}</p>}
           </div>
         </div>
 
+        <div className="flex flex-col gap-2 self-start md:self-auto">
+          {/* Live Share Toggle */}
+          <button
+            onClick={toggleSharing}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border ${isSharing ? 'bg-coop-600 hover:bg-coop-700 text-white border-coop-700' : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200'}`}
+          >
+            <Radio className={`w-4 h-4 ${isSharing ? 'animate-pulse' : 'text-coop-600'}`} />
+            <span>{isSharing ? 'Sharing Live Location (ON)' : 'Share Live Location'}</span>
+          </button>
+          {shareError && <span className="text-[11px] text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1">{shareError}</span>}
+          {isSharing && activeOnTheWay && <span className="text-[10px] text-coop-700">Broadcasting to #{activeOnTheWay.bookingCode} • auto-stops on Complete</span>}
+        </div>
         {/* Cooperative Quick Link */}
         {isCoop && (
           <button

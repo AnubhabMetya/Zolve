@@ -19,6 +19,8 @@ import {
   Wallet
 } from 'lucide-react';
 import { createRazorpayOrder, verifyRazorpayPayment } from '../../services/razorpayService';
+import { getCurrentPosition, reverseGeocode } from '../../services/locationService';
+import MapView from '../common/MapView';
 
 export const BookingModal = () => {
   const {
@@ -58,6 +60,50 @@ export const BookingModal = () => {
       // provider title already set via detector; keep description in sync
     }
   }, [p, bookingPrefill]);
+
+  // Step 3 auto-detect: always use live GPS instead of predefined saved location
+  useEffect(() => {
+    if (step !== 3 || !p) return;
+    if (hasAutoLocatedRef.current) return;
+    hasAutoLocatedRef.current = true;
+    let cancelled = false;
+    const run = async () => {
+      setGpsLoadingAddress(true);
+      setGpsAddrError('');
+      try {
+        const pos = await getCurrentPosition();
+        if (cancelled) return;
+        setAddressCoords({ lat: pos.lat, lng: pos.lng });
+        try {
+          const rev = await reverseGeocode(pos.lat, pos.lng);
+          if (!cancelled) {
+            setSelectedAddress(rev.full);
+            setCustomAddress(rev.full);
+            setIsCustomAddress(true);
+          }
+        } catch {
+          // keep coords even if reverse geocode fails
+          if (!cancelled) {
+            const fallback = `${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)} (Current GPS)`;
+            setSelectedAddress(fallback);
+            setCustomAddress(fallback);
+            setIsCustomAddress(true);
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setGpsAddrError(e.message || 'Failed to auto-detect GPS. Use manual address or tap Use Current GPS.');
+      } finally {
+        if (!cancelled) setGpsLoadingAddress(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [step, p]);
+
+  // Reset auto-locate flag when modal closes / new provider selected
+  useEffect(() => {
+    if (!selectedProviderForBooking) hasAutoLocatedRef.current = false;
+  }, [selectedProviderForBooking]);
   const [selectedDate, setSelectedDate] = useState('2026-08-27');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
   const [selectedAddress, setSelectedAddress] = useState(
@@ -65,6 +111,10 @@ export const BookingModal = () => {
   );
   const [customAddress, setCustomAddress] = useState('');
   const [isCustomAddress, setIsCustomAddress] = useState(false);
+  const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || { lat: 12.9784, lng: 77.6408 });
+  const [gpsLoadingAddress, setGpsLoadingAddress] = useState(false);
+  const [gpsAddrError, setGpsAddrError] = useState('');
+  const hasAutoLocatedRef = React.useRef(false);
 
   // Pricing calculations
   const baseServicePrice = p ? p.basePrice * 2 : 800;
@@ -148,6 +198,8 @@ export const BookingModal = () => {
         providerPhone: p.phone,
         providerTitle: p.title,
         isCoopMember: p.isCoopMember,
+        providerCoords: p.coords || { lat: 12.9716, lng: 77.5946 },
+        customerCoords: addressCoords,
         serviceId: bookingPrefill?.serviceId || 'srv-user-selected',
         serviceName: bookingPrefill?.serviceName || p.title,
         bookingImages: bookingPrefill?.images || [],
@@ -155,7 +207,7 @@ export const BookingModal = () => {
         aiConfidence: bookingPrefill?.confidence,
         aiProblem: bookingPrefill?.problem,
         category: p.serviceCategories?.[0] || 'Household',
-        address: isCustomAddress ? customAddress : selectedAddress,
+        address: isCustomAddress ? (customAddress || selectedAddress) : selectedAddress,
         scheduledDate: selectedDate,
         scheduledTime: selectedTimeSlot,
         description: serviceDescription,
@@ -354,11 +406,9 @@ export const BookingModal = () => {
               <div className="space-y-4 animate-in fade-in">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 font-display">
-                    3. Select Service Address
+                    3. Confirm Service Address
                   </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Specify where the professional should arrive.
-                  </p>
+                  {gpsLoadingAddress && <p className="text-[11px] text-zinc-600 bg-zinc-100 border border-zinc-200 rounded-lg px-2 py-1 mt-2">Detecting current GPS...</p>}
                 </div>
 
                 <div className="space-y-2.5">
@@ -368,6 +418,7 @@ export const BookingModal = () => {
                       type="button"
                       onClick={() => {
                         setSelectedAddress(addr.addressLine);
+                        if (addr.coords) setAddressCoords(addr.coords);
                         setIsCustomAddress(false);
                       }}
                       className={`w-full text-left p-3.5 rounded-2xl border transition-all flex items-start gap-3 ${
@@ -406,6 +457,36 @@ export const BookingModal = () => {
                         className="w-full p-3 mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
                       ></textarea>
                     )}
+                  </div>
+
+                  {/* Live Map — Pin your exact location */}
+                  <div className="space-y-2 pt-3 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700">Pin exact location (drag marker)</span>
+                      <button
+                        type="button"
+                        disabled={gpsLoadingAddress}
+                        onClick={async () => {
+                          setGpsLoadingAddress(true); setGpsAddrError('');
+                          try {
+                            const pos = await getCurrentPosition();
+                            setAddressCoords({ lat: pos.lat, lng: pos.lng });
+                            try {
+                              const rev = await reverseGeocode(pos.lat, pos.lng);
+                              setSelectedAddress(rev.full);
+                              setCustomAddress(rev.full);
+                              setIsCustomAddress(true);
+                            } catch { /* keep coords */ }
+                          } catch (e) { setGpsAddrError(e.message); } finally { setGpsLoadingAddress(false); }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-brand-900 text-white text-[11px] font-bold disabled:opacity-60 flex items-center gap-1"
+                      >
+                        <MapPin className="w-3 h-3" /> {gpsLoadingAddress ? 'Locating...' : 'Use Current GPS'}
+                      </button>
+                    </div>
+                    {gpsAddrError && <p className="text-xs text-red-600">{gpsAddrError}</p>}
+                    <MapView customerPos={addressCoords} providerPos={p.coords || null} draggable onCustomerMove={setAddressCoords} height="180px" />
+                    <p className="text-[10px] text-slate-400">Drag the blue pin to adjust. Coordinates saved with booking: {addressCoords.lat.toFixed(4)}, {addressCoords.lng.toFixed(4)}</p>
                   </div>
                 </div>
               </div>

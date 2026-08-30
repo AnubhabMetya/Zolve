@@ -12,7 +12,7 @@ export const Footer = () => {
           {/* Brand & Mission Statement */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-coop-500 flex items-center justify-center text-white font-black text-xl shadow-glow">
+              <div className="w-10 h-10 rounded-xl bg-black border border-white/20 flex items-center justify-center text-white font-black text-xl shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
                 Z
               </div>
               <div>

@@ -134,29 +134,6 @@ export const SocietyDashboard = () => {
         </div>
       </div>
 
-      {/* Pending Executive Approvals — only for society_admin, community vertical */}
-      {executiveApplications.filter(a=>a.vertical==='community' && a.status==='pending_approval').length>0 && (
-        <div className="bg-white rounded-3xl border border-amber-200 shadow-subtle overflow-hidden">
-          <div className="p-6 border-b border-amber-100 bg-amber-50 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-amber-900">Pending Executive Approvals — Community & Society ({executiveApplications.filter(a=>a.vertical==='community' && a.status==='pending_approval').length})</h3>
-            <span className="text-[11px] text-amber-700">Society Admin action required</span>
-          </div>
-          <div className="divide-y divide-amber-100">
-            {executiveApplications.filter(a=>a.vertical==='community' && a.status==='pending_approval').map(app=>(
-              <div key={app.id} className="p-4 flex items-center justify-between">
-                <div className="text-xs"><div className="font-bold text-slate-900">{app.applicantName} — {app.applicantPhone}</div><div className="text-slate-500">{app.applicantEmail} • Vertical: {app.vertical}</div></div>
-                {currentUser?.role==='society_admin' ? (
-                  <div className="flex gap-2">
-                    <button onClick={()=>approveExecutiveApplication(app.id)} className="px-3 py-1.5 rounded-xl bg-coop-600 text-white text-xs font-bold">Approve</button>
-                    <button onClick={()=>rejectExecutiveApplication(app.id)} className="px-3 py-1.5 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs font-bold">Reject</button>
-                  </div>
-                ) : <span className="text-[11px] text-slate-400">Awaiting Society Admin</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Active Society Maintenance Queue */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">

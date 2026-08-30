@@ -25,6 +25,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     setSelectedProviderForProfile,
     selectedLocation
   } = useApp();
+  const userCoords = typeof selectedLocation === 'string' ? { lat: 12.9784, lng: 77.6408 } : (selectedLocation?.lat ? selectedLocation : { lat: 12.9784, lng: 77.6408 });
 
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -37,9 +38,19 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
   // Extract all distinct categories
   const categoryList = ['All', 'Electrical', 'Plumbing', 'Cleaning', 'Appliance Repair', 'Carpentry', 'Cooking', 'Elder Assistance', 'Apartment Maintenance'];
 
+  // Haversine helper inline to avoid extra import (free)
+  const haversineSortKm = (lat1, lng1, lat2, lng2) => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lng1) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+
   // Filtered & Sorted Providers List
   const filteredProviders = useMemo(() => {
     return providers
+      .map((p) => ({ ...p, _distanceKm: p.coords ? haversineSortKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) : 999 }))
       .filter((p) => {
         // Search text matching name, title, skills, categories
         if (searchQuery.trim()) {
@@ -72,12 +83,15 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
         return true;
       })
       .sort((a, b) => {
+        if (sortBy === 'distance') return a._distanceKm - b._distanceKm;
         if (sortBy === 'rating') return b.rating - a.rating;
         if (sortBy === 'price_low') return a.basePrice - b.basePrice;
         if (sortBy === 'experience') return b.experienceYears - a.experienceYears;
         if (sortBy === 'jobs') return b.completedJobs - a.completedJobs;
-        // Recommended default: cooperative members + rating + jobs
-        return (b.isCoopMember ? 1 : 0) * 2 + b.rating - ((a.isCoopMember ? 1 : 0) * 2 + a.rating);
+        // Recommended default: cooperative members + rating + jobs, but boost nearby
+        const scoreA = (a.isCoopMember ? 2 : 0) + a.rating - Math.min(a._distanceKm / 10, 1);
+        const scoreB = (b.isCoopMember ? 2 : 0) + b.rating - Math.min(b._distanceKm / 10, 1);
+        return scoreB - scoreA;
       });
   }, [providers, searchQuery, selectedCategory, minRating, maxPrice, verifiedOnly, coopMembersOnly, sortBy]);
 
@@ -95,7 +109,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
             Find Trusted Local Service Providers
           </h1>
           <p className="text-xs text-slate-300">
-            Showing verified professionals active near <strong className="text-coop-300">{selectedLocation}</strong>
+            Showing verified professionals active near <strong className="text-coop-300">{typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name}</strong> {userCoords && <span className="text-[11px] text-slate-400">({userCoords.lat.toFixed(3)}, {userCoords.lng.toFixed(3)})</span>}
           </p>
         </div>
 
@@ -120,6 +134,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
               className="px-3 py-2.5 rounded-xl border border-slate-700 bg-brand-900 text-xs font-semibold text-slate-100 focus:outline-none focus:ring-2 focus:ring-coop-400"
             >
               <option value="recommended">Recommended (Co-op First)</option>
+              <option value="distance">Nearest First</option>
               <option value="rating">Highest Rated ★</option>
               <option value="price_low">Price: Low to High</option>
               <option value="experience">Most Experienced</option>
@@ -329,6 +344,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
                       <div className="text-[11px] text-slate-400 flex items-center gap-1 pt-1">
                         <MapPin className="w-3.5 h-3.5 text-slate-400" />
                         <span>{provider.location}</span>
+                        {provider._distanceKm < 998 && <span className="ml-1 px-1.5 py-0.5 rounded bg-coop-50 text-coop-700 font-bold border border-coop-200">{provider._distanceKm < 1 ? `${Math.round(provider._distanceKm*1000)}m` : `${provider._distanceKm.toFixed(1)}km`} away</span>}
                         <span className="mx-1">•</span>
                         <Clock className="w-3.5 h-3.5 text-coop-600" />
                         <span className="text-coop-700 font-medium">{provider.availability}</span>
