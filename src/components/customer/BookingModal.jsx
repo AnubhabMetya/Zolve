@@ -19,7 +19,7 @@ import {
   Wallet
 } from 'lucide-react';
 import { createRazorpayOrder, verifyRazorpayPayment } from '../../services/razorpayService';
-import { getCurrentPosition, reverseGeocode } from '../../services/locationService';
+import { getCurrentPosition, reverseGeocode, searchPlaces, searchByPincode, isValidIndianPincode } from '../../services/locationService';
 import MapView from '../common/MapView';
 
 export const BookingModal = () => {
@@ -114,7 +114,30 @@ export const BookingModal = () => {
   const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || { lat: 12.9784, lng: 77.6408 });
   const [gpsLoadingAddress, setGpsLoadingAddress] = useState(false);
   const [gpsAddrError, setGpsAddrError] = useState('');
+  const [addrSearchResults, setAddrSearchResults] = useState([]);
+  const [addrSearching, setAddrSearching] = useState(false);
+  const [pinCodeBooking, setPinCodeBooking] = useState('');
+  const [pinBookingLoading, setPinBookingLoading] = useState(false);
+  const [pinBookingError, setPinBookingError] = useState('');
   const hasAutoLocatedRef = React.useRef(false);
+  const addrDebounceRef = React.useRef(null);
+
+  // India-wide autocomplete for custom address (Nominatim countrycodes=in)
+  useEffect(() => {
+    if (!isCustomAddress) { setAddrSearchResults([]); return; }
+    const q = customAddress.trim();
+    if (addrDebounceRef.current) clearTimeout(addrDebounceRef.current);
+    if (q.length < 3) { setAddrSearchResults([]); setAddrSearching(false); return; }
+    setAddrSearching(true);
+    addrDebounceRef.current = setTimeout(async () => {
+      try {
+        const results = await searchPlaces(q, 6);
+        setAddrSearchResults(results);
+      } catch { setAddrSearchResults([]); }
+      finally { setAddrSearching(false); }
+    }, 450);
+    return () => clearTimeout(addrDebounceRef.current);
+  }, [customAddress, isCustomAddress]);
 
   // Pricing calculations
   const baseServicePrice = p ? p.basePrice * 2 : 800;
@@ -190,8 +213,8 @@ export const BookingModal = () => {
       if (requestedRedeem > 0) {
         redeemZolveMoney(requestedRedeem, 'pending');
       }
-      // Step 3: Create confirmed booking in application state (with AI image prefill if present)
-      const finalBooking = createBooking({
+      // Step 3: Create confirmed booking in application state (Supabase is source of truth)
+      const finalBooking = await createBooking({
         providerId: p.id,
         providerName: p.name,
         providerAvatar: p.avatar,
@@ -449,14 +472,82 @@ export const BookingModal = () => {
                     </button>
 
                     {isCustomAddress && (
-                      <textarea
-                        rows={3}
-                        value={customAddress}
-                        onChange={(e) => setCustomAddress(e.target.value)}
-                        placeholder="Enter full flat number, apartment building, street, landmark, pincode..."
-                        className="w-full p-3 mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                      ></textarea>
+                      <div className="relative mt-2">
+                        <textarea
+                          rows={3}
+                          value={customAddress}
+                          onChange={(e) => setCustomAddress(e.target.value)}
+                          placeholder="Type any location in India — e.g. Dadar, Mumbai or MG Road, Delhi — suggestions appear below"
+                          className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                        ></textarea>
+                        {addrSearching && <p className="text-[11px] text-slate-500 mt-1">Searching India...</p>}
+                        {addrSearchResults.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                            {addrSearchResults.map((r) => (
+                              <button
+                                key={`${r.lat}-${r.lng}-${r.name}`}
+                                type="button"
+                                onClick={() => {
+                                  setCustomAddress(r.name);
+                                  setSelectedAddress(r.name);
+                                  setAddressCoords({ lat: r.lat, lng: r.lng });
+                                  setAddrSearchResults([]);
+                                }}
+                                className="w-full text-left px-3 py-2.5 hover:bg-brand-50 dark:hover:bg-slate-800 flex items-start gap-2 border-b last:border-0 border-slate-100 dark:border-slate-800"
+                              >
+                                <MapPin className="w-3.5 h-3.5 text-brand-600 shrink-0 mt-0.5" />
+                                <span className="text-xs text-slate-700 dark:text-slate-200 line-clamp-2">{r.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {!addrSearching && isCustomAddress && customAddress.trim().length >= 3 && addrSearchResults.length === 0 && (
+                          <p className="text-[11px] text-slate-400 mt-1">No suggestions — keep typing (e.g. &quot;Connaught Place Delhi&quot;) or use current GPS / drag map pin.</p>
+                        )}
+                      </div>
                     )}
+                  </div>
+
+                  {/* Pincode */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-brand-700" />
+                      <span className="text-xs font-bold text-slate-800">Search by Pincode</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="6-digit PIN e.g. 110001"
+                        value={pinCodeBooking}
+                        onChange={(e)=>{ const v=e.target.value.replace(/\D/g,'').slice(0,6); setPinCodeBooking(v); if(pinBookingError) setPinBookingError(''); }}
+                        onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); (async()=>{ if(!isValidIndianPincode(pinCodeBooking)) { setPinBookingError('Enter valid 6-digit pincode'); return; } setPinBookingLoading(true); setPinBookingError(''); try{ const r=await searchByPincode(pinCodeBooking,1); const b=r[0]; setAddressCoords({lat:b.lat,lng:b.lng}); const label=b.short||b.name; setCustomAddress(label); setSelectedAddress(label); setIsCustomAddress(true);}catch(err){ setPinBookingError(err.message);} finally{ setPinBookingLoading(false);} })(); } }}
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm tracking-widest"
+                      />
+                      <button
+                        type="button"
+                        disabled={pinBookingLoading || !isValidIndianPincode(pinCodeBooking)}
+                        onClick={async ()=>{
+                          if(!isValidIndianPincode(pinCodeBooking)) { setPinBookingError('Enter valid 6-digit pincode'); return; }
+                          setPinBookingLoading(true); setPinBookingError('');
+                          try{
+                            const res = await searchByPincode(pinCodeBooking, 1);
+                            const best = res[0];
+                            setAddressCoords({ lat: best.lat, lng: best.lng });
+                            const label = best.short || best.name;
+                            setCustomAddress(label);
+                            setSelectedAddress(label);
+                            setIsCustomAddress(true);
+                          }catch(err){ setPinBookingError(err.message || 'Pincode lookup failed'); }
+                          finally{ setPinBookingLoading(false); }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-brand-900 hover:bg-brand-800 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1 shrink-0"
+                      >
+                        {pinBookingLoading ? 'Locating...' : 'Locate by PIN'}
+                      </button>
+                    </div>
+                    {pinBookingError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">{pinBookingError}</p>}
                   </div>
 
                   {/* Live Map — Pin your exact location */}

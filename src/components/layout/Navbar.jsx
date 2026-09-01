@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   Sparkles,
   MapPin,
@@ -24,21 +26,25 @@ import {
 
 export const Navbar = () => {
   const {
-    currentUser,
-    activeRole,
-    logout,
     selectedLocation,
     setIsLocationModalOpen,
-    setIsAuthModalOpen,
-    setAuthModalTab,
     setIsCopilotOpen,
     notifications,
     activeTab,
     setActiveTab,
-    switchDemoRole,
     theme,
-    toggleTheme
+    toggleTheme,
+    switchDemoRole
   } = useApp();
+  const { session, profile, signOut, isAuthenticated } = useAuth();
+  const currentUser = profile ? { id: profile.id, name: profile.full_name, email: profile.email, role: profile.role, avatar: profile.avatar_url } : null;
+  const activeRole = profile?.role || 'customer';
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try { await signOut(); } catch {}
+    navigate('/');
+  };
 
   const showDemo = import.meta.env.VITE_ENABLE_DEMO === 'true' || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('demo')) || activeRole === 'admin';
 
@@ -49,50 +55,40 @@ export const Navbar = () => {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const [isFloating, setIsFloating] = useState(false);
-
-  useEffect(() => {
-    let ticking = false;
-    const onScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          const y = window.scrollY || window.pageYOffset;
-          // 40–80px threshold as per spec — use 60px as sweet spot
-          setIsFloating(y > 60);
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-    // initial check
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+  // Route map for tabs that have dedicated routes
+  const routeMap = {
+    bookings: '/bookings',
+    payments: '/payments',
+    profile: '/profile',
+    provider: '/provider',
+    admin: '/admin',
+    dashboard: '/dashboard',
+  };
 
   const handleNavClick = (tabKey) => {
     setActiveTab(tabKey);
     setIsMobileMenuOpen(false);
+    // Navigate to dedicated route if one exists, else go to home (wildcard) for tab-based views
+    const target = routeMap[tabKey];
+    if (target) {
+      navigate(target);
+    } else {
+      // For cooperative, community, trust, society, search, home, etc. — render via /* wildcard
+      navigate('/');
+    }
   };
 
   return (
     <>
-      {/* Spacer to prevent layout jump when header becomes fixed */}
-      {isFloating && <div className="h-20 hidden sm:block" aria-hidden="true" />}
-      {isFloating && <div className="h-[68px] sm:hidden" aria-hidden="true" />}
+      {/* Spacer to prevent content hidden behind fixed header */}
+      <div className="h-20" aria-hidden="true" />
       <header
-        className={`z-50 backdrop-blur-md will-change-transform
-          ${isFloating
-            ? 'fixed top-5 sm:top-6 left-1/2 -translate-x-1/2 -ml-2 sm:-ml-3 lg:-ml-3.5 w-[96%] sm:w-[95%] md:w-[94%] lg:w-[92%] xl:w-[88%] 2xl:w-[86%] max-w-[1320px] rounded-[16px] sm:rounded-[20px] lg:rounded-[24px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-[0_12px_40px_-12px_rgba(11,19,43,0.18),0_6px_16px_-6px_rgba(11,19,43,0.10),0_0_0_1px_rgba(0,0,0,0.04)] scale-[0.998] sm:scale-[0.985] overflow-visible'
-            : 'sticky top-0 w-full rounded-none bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 shadow-none scale-100'
-          }
-          transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)]
-        `}
+        className="fixed top-0 left-0 right-0 z-50 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-sm"
       >
-      <div className={`max-w-7xl mx-auto transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${isFloating ? 'px-3 sm:px-4 lg:px-6' : 'px-4 sm:px-6 lg:px-8'}`}>
-        <div className={`flex items-center justify-between transition-all duration-[400ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${isFloating ? 'h-[62px] sm:h-[66px]' : 'h-20'}`}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-20">
           {/* Brand Logo & Tagline */}
-          <div className={`flex items-center transition-all duration-[400ms] ${isFloating ? 'gap-3 lg:gap-5' : 'gap-6'}`}>
+          <div className="flex items-center gap-6">
             <button
               onClick={() => handleNavClick('home')}
               className="flex items-center gap-3 group text-left focus:outline-none"
@@ -128,7 +124,7 @@ export const Navbar = () => {
           </div>
 
           {/* Desktop Navigation Links (Role Dependent) */}
-          <nav className={`hidden md:flex items-center gap-1 lg:gap-2 transition-all duration-[400ms] ${isFloating ? 'ml-2 lg:ml-4 xl:ml-6' : 'ml-4 lg:ml-8 xl:ml-10'}`}>
+          <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-4 lg:ml-8 xl:ml-10">
             {!currentUser ? (
               // Public Navigation
               <>
@@ -301,7 +297,7 @@ export const Navbar = () => {
           </nav>
 
           {/* Right Action Icons & Auth Controls */}
-          <div className={`flex items-center shrink-0 transition-all duration-[400ms] ${isFloating ? 'gap-1.5 sm:gap-2' : 'gap-2.5 sm:gap-3'}`}>
+          <div className="flex items-center shrink-0 gap-2.5 sm:gap-3">
             {/* Dark Mode Toggle — visible on all pages including landing */}
             <button
               onClick={toggleTheme}
@@ -483,7 +479,7 @@ export const Navbar = () => {
                       My Profile
                     </button>
                     <button
-                      onClick={() => { logout(); setIsProfileMenuOpen(false); }}
+                      onClick={async () => { await handleLogout(); setIsProfileMenuOpen(false); }}
                       className="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 font-medium border-t border-slate-100"
                     >
                       <LogOut className="w-3.5 h-3.5 text-red-500" />
@@ -493,16 +489,22 @@ export const Navbar = () => {
                 )}
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5 shrink-0 items-stretch">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => { setAuthModalTab('register'); setIsAuthModalOpen(true); }}
-                  className="w-full px-4 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap text-center"
+                  onClick={() => navigate('/login')}
+                  className="px-3.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-colors whitespace-nowrap"
                 >
-                  Join as User
+                  Login
                 </button>
                 <button
-                  onClick={() => setActiveTab('join-executive')}
-                  className="w-full inline-flex justify-center px-3.5 py-1.5 rounded-lg bg-white border-2 border-black text-black hover:bg-zinc-50 hover:border-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:bg-white dark:text-black dark:border-black dark:hover:bg-zinc-100 text-xs font-bold transition-all whitespace-nowrap"
+                  onClick={() => navigate('/signup')}
+                  className="px-3.5 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap text-center"
+                >
+                  Sign Up
+                </button>
+                <button
+                  onClick={() => { setIsLocationModalOpen(false); navigate('/'); setTimeout(()=> setActiveTab('join-executive'), 0) }}
+                  className="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-white border-2 border-black text-black hover:bg-zinc-50 text-xs font-bold whitespace-nowrap"
                 >
                   Join as Executive
                 </button>
@@ -553,13 +555,18 @@ export const Navbar = () => {
           >
             Housing Society Portal
           </button>
-          {currentUser && (
+          {isAuthenticated ? (
             <button
-              onClick={() => { logout(); setIsMobileMenuOpen(false); }}
+              onClick={async () => { await handleLogout(); setIsMobileMenuOpen(false); }}
               className="w-full text-left px-3 py-2 text-sm font-semibold text-red-600 rounded-lg hover:bg-red-50"
             >
-              Sign Out ({currentUser.name})
+              Sign Out ({currentUser?.name})
             </button>
+          ) : (
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <button onClick={() => { navigate('/login'); setIsMobileMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm font-bold text-slate-800 rounded-lg bg-slate-50">Login</button>
+              <button onClick={() => { navigate('/signup'); setIsMobileMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm font-bold text-white rounded-lg bg-black">Sign Up</button>
+            </div>
           )}
         </div>
       )}

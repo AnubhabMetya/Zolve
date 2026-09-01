@@ -17,33 +17,39 @@ import {
   PROVIDER_EARNINGS_LEDGER,
   INITIAL_SUPPORT_TICKETS
 } from '../data/mockData';
+import { useAuth } from './AuthContext';
+import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 
 const AppContext = createContext(null);
 
 const STORAGE_KEY_PREFIX = 'zolve_app_state_v1';
 
 export const AppProvider = ({ children }) => {
-  // 1. Auth State
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_user`);
-    return saved ? JSON.parse(saved) : null; // default null to show split-screen auth screen
-  });
+  // 1. Auth State — Delegated to Supabase AuthContext (single source of truth)
+  // currentUser/activeRole now derived from Supabase session/profile, not localStorage
+  let auth = null
+  try { auth = useAuth() } catch { auth = null }
+  const supaSession = auth?.session || null
+  const supaProfile = auth?.profile || null
+  const supaUser = auth?.user || null
+  const currentUser = supaProfile ? {
+    id: supaProfile.id,
+    name: supaProfile.full_name,
+    email: supaProfile.email,
+    role: supaProfile.role,
+    avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
+    location: 'Bengaluru',
+    isCoopMember: supaProfile.role === 'provider',
+  } : null
+  const activeRole = supaProfile?.role || 'customer'
+  // Keep setter stubs for backward compat (no-op, auth is Supabase)
+  const setCurrentUser = () => { console.warn('[AppContext] setCurrentUser is deprecated — use Supabase Auth') }
+  const setActiveRole = () => { console.warn('[AppContext] setActiveRole is deprecated — role from profiles') }
 
-  const [activeRole, setActiveRole] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_role`);
-    return saved || 'customer';
-  });
-
-  // 2. Core Entities State
-  const [providers, setProviders] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_providers`);
-    return saved ? JSON.parse(saved) : INITIAL_PROVIDERS;
-  });
-
-  const [bookings, setBookings] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_bookings`);
-    return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
-  });
+  // 2. Core Entities State — Supabase is source of truth (localStorage no longer for bookings/providers)
+  const [providers, setProviders] = useState(INITIAL_PROVIDERS);
+  const [bookings, setBookings] = useState([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
 
   const [proposals, setProposals] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_proposals`);
@@ -60,10 +66,8 @@ export const AppProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : SOCIETY_DATA;
   });
 
-  const [earningsLedger, setEarningsLedger] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_ledger`);
-    return saved ? JSON.parse(saved) : PROVIDER_EARNINGS_LEDGER;
-  });
+  // Earnings derived from bookings (Supabase view), not separate localStorage
+  const [earningsLedger, setEarningsLedger] = useState([]);
 
   const [supportTickets, setSupportTickets] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_tickets`);
@@ -135,27 +139,132 @@ export const AppProvider = ({ children }) => {
   // Direct booking prefill from image detector (service + images)
   const [bookingPrefill, setBookingPrefill] = useState(null); // { serviceId, serviceName, images: File[], detectedAt }
 
-  // Sync to localStorage
+  // Auth is now Supabase-only — do NOT persist user/role to localStorage (removed localStorage auth source of truth)
+  // Supabase Auth persists session via sb-* keys (HttpOnly handled by Supabase)
+
+  // Supabase: Fetch providers (public) and bookings (RLS) — replaces localStorage source of truth
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}_user`, JSON.stringify(currentUser));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}_role`, activeRole);
-    } else {
-      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_user`);
+    if (!isSupabaseConfigured()) return
+    const fetchProviders = async () => {
+      const { data, error } = await supabase.from('providers').select('*')
+      if (!error && data && data.length) {
+        const mapped = data.map(row => ({
+          id: row.id,
+          name: row.name,
+          title: row.title,
+          rating: Number(row.rating),
+          ratingCount: row.rating_count,
+          completedJobs: row.completed_jobs,
+          experienceYears: row.experience_years,
+          avatar: row.avatar,
+          phone: row.phone,
+          email: row.email,
+          location: row.location,
+          coords: row.coords,
+          basePrice: row.base_price,
+          startingPrice: row.starting_price,
+          availability: row.availability,
+          isCoopMember: row.is_coop_member,
+          coopBadge: row.coop_badge,
+          coopDividendScore: row.coop_dividend_score,
+          verifications: row.verifications,
+          serviceCategories: row.service_categories,
+          skills: row.skills,
+          bio: row.bio,
+          recentReviews: row.recent_reviews || []
+        }))
+        setProviders(mapped)
+      }
     }
-  }, [currentUser, activeRole]);
+    fetchProviders()
+  }, [])
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}_bookings`, JSON.stringify(bookings));
-  }, [bookings]);
+    if (!isSupabaseConfigured()) {
+      // Fallback to mock bookings when Supabase not configured
+      setBookings(INITIAL_BOOKINGS)
+      setEarningsLedger(PROVIDER_EARNINGS_LEDGER)
+      setBookingsLoading(false)
+      return
+    }
+    if (!supaSession) {
+      setBookings([])
+      setEarningsLedger([])
+      setBookingsLoading(false)
+      return
+    }
+    const fetchBookings = async () => {
+      setBookingsLoading(true)
+      const { data, error } = await supabase.from('bookings').select('*').order('created_at', { ascending: false })
+      if (!error && data) {
+        const mapped = data.map(row => ({
+          id: row.id,
+          bookingCode: row.booking_code,
+          customerId: row.customer_id,
+          customerAuthId: row.customer_auth_id,
+          customerName: row.customer_name,
+          customerPhone: row.customer_phone,
+          customerCoords: row.customer_coords,
+          providerId: row.provider_id,
+          providerAuthId: row.provider_auth_id,
+          providerName: row.provider_name,
+          providerAvatar: row.provider_avatar,
+          providerPhone: row.provider_phone,
+          providerTitle: row.provider_title,
+          providerCoords: row.provider_coords,
+          isCoopMember: row.is_coop_member,
+          serviceId: row.service_id,
+          serviceName: row.service_name,
+          category: row.category,
+          address: row.address,
+          scheduledDate: row.scheduled_date,
+          scheduledTime: row.scheduled_time,
+          description: row.description,
+          baseAmount: row.base_amount,
+          platformFee: row.platform_fee,
+          coopReserveFee: row.coop_reserve_fee,
+          taxes: row.taxes,
+          totalAmount: row.total_amount,
+          providerEarnings: row.provider_earnings,
+          bookingStatus: row.booking_status,
+          paymentStatus: row.payment_status,
+          paymentId: row.payment_id,
+          razorpayOrderId: row.razorpay_order_id,
+          paymentMethod: row.payment_method,
+          chatMessages: row.chat_messages || [],
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          startedAt: row.started_at,
+          completedAt: row.completed_at,
+          cancelledReason: row.cancelled_reason
+        }))
+        setBookings(mapped)
+        const ledger = mapped.map(b => ({
+          id: `ledg-${b.id}`,
+          bookingCode: b.bookingCode,
+          serviceName: b.serviceName,
+          customerName: b.customerName,
+          grossAmount: b.totalAmount,
+          customerPaid: b.totalAmount,
+          platformFee: b.platformFee,
+          coopAllocation: b.coopReserveFee,
+          taxes: b.taxes,
+          netEarnings: b.providerEarnings,
+          status: b.bookingStatus === 'SERVICE_COMPLETED' ? 'SETTLED' : 'PENDING',
+          date: b.createdAt ? b.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]
+        }))
+        setEarningsLedger(ledger)
+      } else if (error) {
+        console.warn('[bookings] fetch error', error.message || error)
+      }
+      setBookingsLoading(false)
+    }
+    fetchBookings()
+  }, [supaSession?.user?.id])
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_proposals`, JSON.stringify(proposals));
   }, [proposals]);
-
-  useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}_providers`, JSON.stringify(providers));
-  }, [providers]);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_exec_apps`, JSON.stringify(executiveApplications));
@@ -174,6 +283,18 @@ export const AppProvider = ({ children }) => {
     if (theme === 'dark') document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [theme]);
+
+  // Cleanup old localStorage auth/bookings/providers keys when Supabase is source of truth
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return
+    try {
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_bookings`)
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_providers`)
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_ledger`)
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_user`)
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_role`)
+    } catch {}
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_zolve_money`, JSON.stringify(zolveMoney));
@@ -207,40 +328,33 @@ export const AppProvider = ({ children }) => {
 
   const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
-  // Auth Operations
-  const login = (user, role = 'customer') => {
-    setCurrentUser(user);
-    setActiveRole(role);
-    setIsAuthModalOpen(false);
-    addNotification({
-      title: `Welcome back, ${user.name}!`,
-      message: `Signed in successfully as ${role.replace('_', ' ').toUpperCase()}.`,
-      type: 'system'
-    });
+  // Auth Operations — Supabase is the ONLY source of truth (no localStorage, no EmailJS, no hardcoded OTP)
+  const login = () => {
+    console.warn('[AppContext] login() is deprecated — use AuthContext signIn via /login page')
+    addNotification({ title: 'Please use Login page', message: 'Sign in via /login with Supabase Auth.', type: 'system' })
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem(`${STORAGE_KEY_PREFIX}_user`);
-    setActiveTab('home');
-    addNotification({
-      title: 'Signed Out',
-      message: 'You have been safely signed out of Zolve.',
-      type: 'system'
-    });
+  const logout = async () => {
+    try { if (auth?.signOut) await auth.signOut() } catch (e) { console.warn('[logout]', e) }
+    // Clear any legacy localStorage keys if present
+    try { localStorage.removeItem(`${STORAGE_KEY_PREFIX}_user`); localStorage.removeItem(`${STORAGE_KEY_PREFIX}_role`) } catch {}
+    setActiveTab('home')
+    addNotification({ title: 'Signed Out', message: 'You have been safely signed out of Zolve.', type: 'system' })
   };
 
   const switchDemoRole = (roleKey) => {
+    // Demo switch is dev-only and does NOT bypass Supabase RLS in production
+    const isDemo = import.meta.env.VITE_ENABLE_DEMO === 'true' || new URLSearchParams(window.location.search).has('demo')
+    if (!isDemo) {
+      console.warn('[switchDemoRole] disabled in production — use real Supabase login')
+      addNotification({ title: 'Demo disabled', message: 'Demo role switch is only available with ?demo or VITE_ENABLE_DEMO=true', type: 'system' })
+      return
+    }
     const targetUser = DEMO_USERS[roleKey];
     if (targetUser) {
-      setCurrentUser(targetUser);
-      setActiveRole(targetUser.role);
-      setActiveTab('home');
-      addNotification({
-        title: `Switched to Demo: ${targetUser.name}`,
-        message: `Role changed to ${targetUser.role.toUpperCase()}`,
-        type: 'system'
-      });
+      console.warn('[switchDemoRole] demo mode — not authenticated via Supabase, RLS still enforces')
+      // Do NOT set currentUser via localStorage; just notify
+      addNotification({ title: `Demo: ${targetUser.name}`, message: `Demo role ${targetUser.role} (mock, no Supabase session)`, type: 'system' })
     }
   };
 
@@ -362,12 +476,12 @@ export const AppProvider = ({ children }) => {
     try { window.dispatchEvent(new CustomEvent('zolve:live-location', { detail: { bookingId, coords: { ...coords, bookingId, updatedAt: new Date().toISOString() } } })); } catch { /* ignore */ }
   };
 
-  // Booking Flow Operations
-  const createBooking = (bookingData) => {
+  // Booking Flow Operations — Supabase is source of truth (localStorage fallback when not configured)
+  const createBooking = async (bookingData) => {
     const newBookingId = `bk-zol-${Math.floor(1000 + Math.random() * 9000)}`;
     const bookingCode = `ZOL-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const newBooking = {
+    const baseBooking = {
       id: newBookingId,
       bookingCode,
       customerId: currentUser ? currentUser.id : 'usr-cust-001',
@@ -387,54 +501,160 @@ export const AppProvider = ({ children }) => {
       ...bookingData
     };
 
-    setBookings((prev) => [newBooking, ...prev]);
+    // If Supabase configured and user is authenticated, insert via Supabase (RLS enforces customer_id = auth.uid())
+    if (isSupabaseConfigured() && supaSession && supaUser) {
+      const row = {
+        id: baseBooking.id,
+        booking_code: baseBooking.bookingCode,
+        customer_id: supaUser.id.toString(),
+        customer_auth_id: supaUser.id,
+        customer_name: baseBooking.customerName,
+        customer_phone: baseBooking.customerPhone,
+        customer_coords: baseBooking.customerCoords || null,
+        provider_id: baseBooking.providerId ? String(baseBooking.providerId) : null,
+        provider_auth_id: null,
+        provider_name: baseBooking.providerName,
+        provider_avatar: baseBooking.providerAvatar,
+        provider_phone: baseBooking.providerPhone,
+        provider_title: baseBooking.providerTitle,
+        provider_coords: baseBooking.providerCoords || baseBooking.customerCoords || null,
+        is_coop_member: !!baseBooking.isCoopMember,
+        service_id: baseBooking.serviceId,
+        service_name: baseBooking.serviceName,
+        category: baseBooking.category,
+        address: baseBooking.address,
+        scheduled_date: baseBooking.scheduledDate || null,
+        scheduled_time: baseBooking.scheduledTime,
+        description: baseBooking.description,
+        base_amount: baseBooking.baseAmount,
+        platform_fee: baseBooking.platformFee || 80,
+        coop_reserve_fee: baseBooking.coopReserveFee || 40,
+        taxes: baseBooking.taxes || 0,
+        total_amount: baseBooking.totalAmount,
+        provider_earnings: baseBooking.providerEarnings || baseBooking.baseAmount,
+        booking_status: baseBooking.bookingStatus,
+        payment_status: baseBooking.paymentStatus,
+        payment_id: baseBooking.paymentId,
+        razorpay_order_id: baseBooking.razorpayOrderId,
+        payment_method: baseBooking.paymentMethod,
+        chat_messages: baseBooking.chatMessages || []
+      };
+      try {
+        const { data, error } = await supabase.from('bookings').insert(row).select().single();
+        if (error) throw error;
+        // Map back to app shape and optimistically update local state
+        const mapped = {
+          id: data.id,
+          bookingCode: data.booking_code,
+          customerId: data.customer_id,
+          customerAuthId: data.customer_auth_id,
+          customerName: data.customer_name,
+          customerPhone: data.customer_phone,
+          customerCoords: data.customer_coords,
+          providerId: data.provider_id,
+          providerAuthId: data.provider_auth_id,
+          providerName: data.provider_name,
+          providerAvatar: data.provider_avatar,
+          providerPhone: data.provider_phone,
+          providerTitle: data.provider_title,
+          providerCoords: data.provider_coords,
+          isCoopMember: data.is_coop_member,
+          serviceId: data.service_id,
+          serviceName: data.service_name,
+          category: data.category,
+          address: data.address,
+          scheduledDate: data.scheduled_date,
+          scheduledTime: data.scheduled_time,
+          description: data.description,
+          baseAmount: data.base_amount,
+          platformFee: data.platform_fee,
+          coopReserveFee: data.coop_reserve_fee,
+          taxes: data.taxes,
+          totalAmount: data.total_amount,
+          providerEarnings: data.provider_earnings,
+          bookingStatus: data.booking_status,
+          paymentStatus: data.payment_status,
+          paymentId: data.payment_id,
+          razorpayOrderId: data.razorpay_order_id,
+          paymentMethod: data.payment_method,
+          chatMessages: data.chat_messages || [],
+          createdAt: data.created_at,
+          updatedAt: data.updated_at
+        };
+        setBookings((prev) => [mapped, ...prev]);
+        awardZolveMoney(mapped.bookingCode, mapped.serviceName);
+        addNotification({ title: 'Booking Confirmed!', message: `Your booking #${mapped.bookingCode} for ${mapped.serviceName} is confirmed.`, type: 'booking' });
+        return mapped;
+      } catch (e) {
+        console.warn('[bookings] Supabase insert failed, falling back to local', e?.message || e);
+        // Fall through to local fallback
+      }
+    }
 
-    // Also add to provider earnings ledger
+    // Fallback: local state (when Supabase not configured or insert failed)
+    setBookings((prev) => [baseBooking, ...prev]);
+    // Earnings will be derived via bookings effect; keep manual ledger for fallback
     const newLedgerItem = {
       id: `ledg_${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
-      bookingCode: newBooking.bookingCode,
-      serviceName: newBooking.serviceName,
-      customerName: newBooking.customerName,
-      grossAmount: newBooking.totalAmount,
-      customerPaid: newBooking.totalAmount,
-      platformFee: newBooking.platformFee || 80,
-      coopAllocation: newBooking.coopReserveFee || 40,
-      taxes: newBooking.taxes || 40,
-      netEarnings: newBooking.providerEarnings || (newBooking.baseAmount),
+      bookingCode: baseBooking.bookingCode,
+      serviceName: baseBooking.serviceName,
+      customerName: baseBooking.customerName,
+      grossAmount: baseBooking.totalAmount,
+      customerPaid: baseBooking.totalAmount,
+      platformFee: baseBooking.platformFee || 80,
+      coopAllocation: baseBooking.coopReserveFee || 40,
+      taxes: baseBooking.taxes || 40,
+      netEarnings: baseBooking.providerEarnings || (baseBooking.baseAmount),
       status: 'SETTLED'
     };
     setEarningsLedger((prev) => [newLedgerItem, ...prev]);
-
-    // Notify provider and customer + award Zolve Money
-    awardZolveMoney(newBooking.bookingCode, newBooking.serviceName);
+    awardZolveMoney(baseBooking.bookingCode, baseBooking.serviceName);
     addNotification({
       title: 'Booking Confirmed!',
-      message: `Your booking #${newBooking.bookingCode} for ${newBooking.serviceName} is confirmed.`,
+      message: `Your booking #${baseBooking.bookingCode} for ${baseBooking.serviceName} is confirmed.`,
       type: 'booking'
     });
-
-    return newBooking;
+    return baseBooking;
   };
 
-  const updateBookingStatus = (bookingId, newStatus, reason = null) => {
-    setBookings((prev) =>
-      prev.map((b) => {
-        if (b.id === bookingId) {
-          const updated = {
-            ...b,
-            bookingStatus: newStatus,
-            cancelledReason: reason || b.cancelledReason,
-            updatedAt: new Date().toISOString()
-          };
-          if (newStatus === 'SERVICE_STARTED') updated.startedAt = new Date().toISOString();
-          if (newStatus === 'SERVICE_COMPLETED') updated.completedAt = new Date().toISOString();
-          return updated;
-        }
-        return b;
-      })
-    );
-
+  const updateBookingStatus = async (bookingId, newStatus, reason = null) => {
+    const patch = {
+      booking_status: newStatus,
+      cancelled_reason: reason,
+      updated_at: new Date().toISOString(),
+      ...(newStatus === 'SERVICE_STARTED' ? { started_at: new Date().toISOString() } : {}),
+      ...(newStatus === 'SERVICE_COMPLETED' ? { completed_at: new Date().toISOString() } : {}),
+    };
+    if (isSupabaseConfigured() && supaSession) {
+      try {
+        const { error } = await supabase.from('bookings').update(patch).eq('id', bookingId);
+        if (error) throw error;
+        // Optimistically update local
+        setBookings((prev) => prev.map(b => b.id === bookingId ? { ...b, bookingStatus: newStatus, cancelledReason: reason || b.cancelledReason, updatedAt: patch.updated_at, startedAt: patch.started_at || b.startedAt, completedAt: patch.completed_at || b.completedAt } : b));
+      } catch (e) {
+        console.warn('[bookings] update status failed', e?.message || e);
+        // Fallback to local
+        setBookings((prev) => prev.map(b => b.id === bookingId ? { ...b, bookingStatus: newStatus, cancelledReason: reason || b.cancelledReason, updatedAt: patch.updated_at, startedAt: patch.started_at || b.startedAt, completedAt: patch.completed_at || b.completedAt } : b));
+      }
+    } else {
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id === bookingId) {
+            const updated = {
+              ...b,
+              bookingStatus: newStatus,
+              cancelledReason: reason || b.cancelledReason,
+              updatedAt: new Date().toISOString()
+            };
+            if (newStatus === 'SERVICE_STARTED') updated.startedAt = new Date().toISOString();
+            if (newStatus === 'SERVICE_COMPLETED') updated.completedAt = new Date().toISOString();
+            return updated;
+          }
+          return b;
+        })
+      );
+    }
     addNotification({
       title: `Booking #${bookingId.substring(0, 11)} Updated`,
       message: `Status transitioned to ${newStatus.replace(/_/g, ' ')}`,
@@ -442,24 +662,27 @@ export const AppProvider = ({ children }) => {
     });
   };
 
-  const sendBookingChatMessage = (bookingId, text, sender = 'customer') => {
-    setBookings((prev) =>
-      prev.map((b) => {
-        if (b.id === bookingId) {
-          const newMsg = {
-            id: `msg-${Date.now()}`,
-            sender,
-            text,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          };
-          return {
-            ...b,
-            chatMessages: [...(b.chatMessages || []), newMsg]
-          };
-        }
-        return b;
-      })
-    );
+  const sendBookingChatMessage = async (bookingId, text, sender = 'customer') => {
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      sender,
+      text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    // Optimistic local update
+    setBookings((prev) => prev.map(b => b.id === bookingId ? { ...b, chatMessages: [...(b.chatMessages || []), newMsg] } : b));
+    if (isSupabaseConfigured() && supaSession) {
+      try {
+        // Fetch current chat_messages to append (avoid race, just append)
+        const { data: existing } = await supabase.from('bookings').select('chat_messages').eq('id', bookingId).single();
+        const current = existing?.chat_messages || [];
+        const updated = [...current, newMsg];
+        const { error } = await supabase.from('bookings').update({ chat_messages: updated }).eq('id', bookingId);
+        if (error) throw error;
+      } catch (e) {
+        console.warn('[bookings] chat update failed', e?.message || e);
+      }
+    }
   };
 
   // Submit Review

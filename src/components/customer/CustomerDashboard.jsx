@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { classifyServiceQuery } from '../../services/aiEngine';
 import { ImageServiceDetector } from '../ai/ImageServiceDetector';
+import { haversineKm, SERVICE_RADIUS_KM } from '../../services/locationService';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -53,9 +54,93 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
     setActiveBookingForTracking,
     setActiveTab,
     setIsCopilotOpen,
+    setIsAuthModalOpen,
+    setAuthModalTab,
     theme,
     toggleTheme
   } = useApp();
+
+  const requireAuthOrRedirect = () => {
+    if (!currentUser) {
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const userCoords = React.useMemo(() => {
+    if (!selectedLocation) return null;
+    if (typeof selectedLocation === 'string') return null;
+    if (selectedLocation.lat != null && selectedLocation.lng != null) return { lat: selectedLocation.lat, lng: selectedLocation.lng };
+    return null;
+  }, [selectedLocation]);
+
+  const nearbyProviders = React.useMemo(() => {
+    if (!userCoords) return providers;
+    return providers.filter(p => p.coords && haversineKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) <= SERVICE_RADIUS_KM);
+  }, [providers, userCoords]);
+
+  const nearbyCoopCount = nearbyProviders.filter(p => p.isCoopMember).length;
+  const hasCoverage = nearbyProviders.length > 0;
+
+  const MOST_BOOKED_SERVICES = [
+    { id: 'srv-clean-01', name: 'Full Home Deep Cleaning', image: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&auto=format&fit=crop&q=80', rating: '4.80', count: '6.9M', price: 918, original: 998 },
+    { id: 'srv-elec-01', name: 'Electrical Repair & Wiring', image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=600&auto=format&fit=crop&q=80', rating: '4.75', count: '2.9M', price: 599, original: null },
+    { id: 'srv-ac-01', name: 'AC Deep Foam Jet Servicing', image: 'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=600&auto=format&fit=crop&q=80', rating: '4.73', count: '859K', price: 299, original: null },
+    { id: 'srv-soc-tank-01', name: 'Water Sump & Overhead Tank Cleaning', image: 'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=600&auto=format&fit=crop&q=80', rating: '4.86', count: '483K', price: 259, original: null },
+  ];
+
+  const LATEST_SERVICES = [
+    { id: 'srv-car-wash', name: 'Car Washing', image: 'https://images.unsplash.com/photo-1552933529-e3b0c0ea9a90?w=600&auto=format&fit=crop&q=80', rating: '4.82', count: '3.1K', price: 499, original: null, badge: 'New' },
+    { id: 'srv-closet', name: 'Closet Organiser', image: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?w=600&auto=format&fit=crop&q=80', rating: '4.78', count: '2.4K', price: 799, original: 999, badge: 'New' },
+  ];
+
+  const UPCOMING_SERVICES = [
+    { id: 'srv-laundry', name: 'House Pickup Laundry Services', image: 'https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=600&auto=format&fit=crop&q=80', rating: null, count: null, price: null, badge: 'Coming Soon' },
+  ];
+
+  const handleMostBookedBooking = (service) => {
+    if (!requireAuthOrRedirect()) return;
+    if (!hasCoverage) return;
+    // 2-3 executives per cooperative job per location — pick randomly among nearby matching that service
+    const svcNameLower = service.name.toLowerCase();
+    let eligible = nearbyProviders.filter(p =>
+      p.isCoopMember &&
+      (p.serviceCategories?.some(c => c.toLowerCase().includes(svcNameLower.split(' ')[0])) ||
+       p.serviceCategories?.some(c => svcNameLower.includes(c.toLowerCase())) ||
+       p.serviceCategories?.some(c => c.toLowerCase() === 'cleaning' && svcNameLower.includes('cleaning')) ||
+       p.serviceCategories?.some(c => c.toLowerCase() === 'electrical' && svcNameLower.includes('electrical')) ||
+       p.serviceCategories?.some(c => c.toLowerCase().includes('appliance') && svcNameLower.includes('ac')) ||
+       p.serviceCategories?.some(c => c.toLowerCase().includes('apartment maintenance') && svcNameLower.includes('sump')) ||
+       p.skills?.some(s => svcNameLower.includes(s.toLowerCase().split(' ')[0])))
+    );
+    // Fallback: any nearby coop member that lists any of the 4 most-booked services generically
+    if (eligible.length < 2) {
+      const fallback = nearbyProviders.filter(p => p.isCoopMember);
+      eligible = fallback.length ? fallback : nearbyProviders;
+    }
+    if (!eligible.length) return;
+    // Ensure 2-3 executives per job — shuffle and pick random
+    const shuffled = [...eligible].sort(() => 0.5 - Math.random());
+    const chosen = shuffled[Math.floor(Math.random() * shuffled.length)];
+    // Pass service context to booking modal via title override
+    setSelectedProviderForBooking({ ...chosen, title: service.name, displayServiceName: service.name, isMostBookedBooking: true, originalPrice: service.original });
+  };
+
+  const handleLatestBooking = (service) => {
+    if (!requireAuthOrRedirect()) return;
+    if (!hasCoverage) return;
+    const svcNameLower = service.name.toLowerCase();
+    let eligible = nearbyProviders.filter(p => p.isCoopMember && p.serviceCategories?.some(c => svcNameLower.includes(c.toLowerCase().split(' ')[0]) || c.toLowerCase().includes(svcNameLower.split(' ')[0])));
+    if (eligible.length < 2) {
+      const fallback = nearbyProviders.filter(p => p.isCoopMember);
+      eligible = fallback.length ? fallback : nearbyProviders;
+    }
+    if (!eligible.length) return;
+    const chosen = [...eligible].sort(() => 0.5 - Math.random())[Math.floor(Math.random() * eligible.length)];
+    setSelectedProviderForBooking({ ...chosen, title: service.name, displayServiceName: service.name, isMostBookedBooking: true, originalPrice: service.original });
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [aiClassification, setAiClassification] = useState(null);
@@ -88,9 +173,9 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      onOpenSearchWithCategory(searchQuery);
-    }
+    if (!searchQuery.trim()) return;
+    if (!requireAuthOrRedirect()) return;
+    onOpenSearchWithCategory(searchQuery);
   };
 
   return (
@@ -138,7 +223,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.5 }}
-            className="text-3xl sm:text-4xl lg:text-5xl font-extrabold font-display tracking-tight text-white leading-tight"
+            className="text-4xl sm:text-5xl lg:text-6xl font-black font-display tracking-tight text-white leading-tight"
           >
             How can we help today?
           </motion.h1>
@@ -147,7 +232,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.5 }}
-            className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl font-light"
+            className="text-base sm:text-lg text-slate-200 leading-relaxed max-w-2xl font-medium"
           >
             Book certified electricians, plumbers, cleaning teams, appliance experts, and personal care professionals backed by democratic cooperative standards.
           </motion.p>
@@ -196,7 +281,10 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                   </div>
                 </div>
                 <button
-                  onClick={() => onOpenSearchWithCategory(aiClassification.serviceName)}
+                  onClick={() => {
+                    if (!requireAuthOrRedirect()) return;
+                    onOpenSearchWithCategory(aiClassification.serviceName);
+                  }}
                   className="px-3 py-1.5 rounded-lg bg-coop-500 hover:bg-coop-600 text-white font-bold text-[11px] shrink-0 transition-colors"
                 >
                   View Matched Providers →
@@ -254,7 +342,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
           <motion.div variants={fadeInUp} className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-coop-500 animate-ping"></div>
-              <h2 className="text-xl font-bold text-slate-900 font-display">Active & Upcoming Bookings</h2>
+              <h2 className="text-2xl font-black text-slate-900 font-display tracking-tight">Active & Upcoming Bookings</h2>
             </div>
             <button
               onClick={() => setActiveTab('bookings')}
@@ -327,39 +415,96 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
         </motion.section>
       )}
 
+      {/* 2b. LOCATION NOT SERVICEABLE — only show when outside 50km */}
+      {userCoords && !hasCoverage && (
+        <div className="rounded-2xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-red-50 border-red-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-red-600 text-white">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-red-900">
+                Services not available in this area
+              </div>
+              <div className="text-xs text-red-700">
+                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'this location'}.`}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setIsLocationModalOpen(true)} className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shrink-0">
+            Change Location
+          </button>
+        </div>
+      )}
+
       {/* 3. SERVICE CATEGORIES GRID */}
       <section
         className="space-y-6"
       >
         <motion.div variants={fadeInUp}>
-          <h2 className="text-2xl font-bold text-slate-900 font-display">Explore Service Categories</h2>
-          <p className="text-xs text-slate-500 mt-1">
+          <h2 className="text-3xl font-black text-slate-900 font-display tracking-tight">Explore Service Categories</h2>
+          <p className="text-sm font-bold text-slate-600 mt-1">
             Standardized transparent pricing with zero surge exploitation
           </p>
         </motion.div>
 
         <div className="space-y-8">
           {serviceCategories.map((category, ci) => (
-            <motion.div
-              key={category.id}
-              variants={fadeInUp}
-              className="space-y-4"
-            >
-              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900 font-display flex items-center gap-2">
+            <React.Fragment key={category.id}>
+              {category.id === 'cat-personal' && (
+                <motion.div
+                  variants={fadeInUp}
+                  className="rounded-2xl overflow-hidden border border-[#B8E6C8] bg-[#E6F4EA] flex flex-col md:flex-row items-stretch"
+                >
+                  <div className="flex-1 p-6 sm:p-8 md:p-10 flex flex-col justify-center space-y-4">
+                    <div className="inline-flex items-center gap-1 text-[#14532D] text-xs font-black tracking-widest uppercase">
+                      <span>✦</span> GARDENING &amp; BALCONY GREENERY <span>✦</span>
+                    </div>
+                    <h3 className="text-3xl sm:text-4xl md:text-[38px] font-black text-[#123524] leading-tight font-display">
+                      Get lush, thriving<br />gardens
+                    </h3>
+                    <p className="text-sm sm:text-[14px] font-semibold text-[#234E37] leading-relaxed max-w-md">
+                      A green balcony purifies air, cuts stress and brings daily joy — let our gardeners nurture soil, pruning &amp; seasonal blooms for you.
+                    </p>
+                    <button
+                      onClick={() => {
+                        if (!requireAuthOrRedirect()) return;
+                        onOpenSearchWithCategory('Gardening & Balcony Greenery');
+                      }}
+                      className="mt-1 w-fit px-5 py-2.5 rounded-lg bg-black hover:bg-zinc-900 text-white text-xs font-bold shadow-sm transition-colors"
+                    >
+                      Explore now
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-[220px] md:min-h-[280px] relative bg-white">
+                    <img
+                      src="https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=800&auto=format&fit=crop&q=80"
+                      alt="Gardening — lush green balcony"
+                      className="w-full h-full object-cover min-h-[220px] md:min-h-[280px]"
+                    />
+                    <div className="absolute inset-0 pointer-events-none">
+                      <div className="absolute bottom-6 left-6 w-32 h-1.5 bg-white/70 blur-[1px] rounded-full" />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+              <motion.div
+                variants={fadeInUp}
+                className="space-y-4"
+              >
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <div>
+                  <h3 className="text-xl font-black text-slate-900 font-display flex items-center gap-2">
                     {category.name}
-                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
                       {category.badge}
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-500">{category.tagline}</p>
+                  <p className="text-sm font-semibold text-slate-600">{category.tagline}</p>
+                  </div>
                 </div>
-              </div>
 
-              <div
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5"
-              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                 {category.services.map((srv) => (
                   <motion.div
                     key={srv.id}
@@ -386,10 +531,10 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
 
                     <div className="p-4 space-y-2.5 flex-1 flex flex-col justify-between">
                       <div>
-                        <h4 className="text-sm font-bold text-slate-900 group-hover:text-brand-900 transition-colors">
+                        <h4 className="text-base font-black text-slate-900 group-hover:text-brand-900 transition-colors leading-tight">
                           {srv.name}
                         </h4>
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                        <p className="text-sm font-medium text-slate-600 mt-1 line-clamp-2 leading-relaxed">
                           {srv.description}
                         </p>
                       </div>
@@ -404,7 +549,10 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                         </div>
 
                         <button
-                          onClick={() => onOpenSearchWithCategory(srv.name)}
+                          onClick={() => {
+                            if (!requireAuthOrRedirect()) return;
+                            onOpenSearchWithCategory(srv.name);
+                          }}
                           className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-coop-50 hover:text-coop-800 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1"
                         >
                           <span>Explore</span>
@@ -416,123 +564,195 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                 ))}
               </div>
             </motion.div>
+            </React.Fragment>
           ))}
         </div>
       </section>
 
-      {/* 4. RECOMMENDED TOP-RATED & COOPERATIVE PROVIDERS */}
+      {/* 4. MOST BOOKED SERVICES — layout like reference Image 1, identity protected */}
       <motion.section
         initial="visible"
         animate="visible"
         variants={staggerContainer}
-        className="space-y-6"
+        className="space-y-4"
       >
-        <motion.div variants={fadeInUp} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-coop-100 text-coop-700">
-                <Award className="w-4 h-4" />
-              </span>
-              <h2 className="text-2xl font-bold text-slate-900 font-display">
-                Top Rated Local Service Providers
-              </h2>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Verified background checks, skill certifications & cooperative members
-            </p>
-          </div>
+        <motion.div variants={fadeInUp} className="flex items-center justify-between">
+          <h2 className="text-3xl font-black text-slate-900 font-display tracking-tight">Most booked services</h2>
           <button
             onClick={() => setActiveTab('search')}
-            className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 self-start"
+            className="text-sm font-black text-brand-700 hover:text-brand-800 flex items-center gap-1"
           >
-            View All Providers ({providers.length}) <ChevronRight className="w-3.5 h-3.5" />
+            View All <ChevronRight className="w-4 h-4" />
           </button>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {providers.slice(0, 3).map((provider) => (
-            <motion.div
-              key={provider.id}
-              variants={fadeInUp}
-              whileHover={{ y: -5, boxShadow: '0 20px 50px rgba(0,0,0,0.12)' }}
-              className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle p-5 flex flex-col justify-between space-y-4 relative group"
+        {!hasCoverage && userCoords ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center space-y-2">
+            <div className="w-12 h-12 rounded-full bg-white border border-amber-200 mx-auto flex items-center justify-center">
+              <MapPin className="w-6 h-6 text-amber-600" />
+            </div>
+            <h3 className="text-sm font-bold text-amber-900">Services not available in this area</h3>
+            <p className="text-xs text-amber-800 max-w-md mx-auto">No executive within 50 km of {typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name}. Change location or pincode to see services in your area.</p>
+            <button onClick={() => setIsLocationModalOpen(true)} className="mt-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">Change Location / Pincode</button>
+          </div>
+        ) : (
+          <div className="relative">
+            <div id="most-booked-scroll" className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide scroll-smooth pr-12">
+              {MOST_BOOKED_SERVICES.map((svc) => (
+                <motion.div
+                  key={svc.id}
+                  variants={fadeInUp}
+                  whileHover={{ y: -4 }}
+                  onClick={() => handleMostBookedBooking(svc)}
+                  className="min-w-[200px] sm:min-w-[220px] md:min-w-[240px] flex-shrink-0 snap-start bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-subtle hover:shadow-xl transition-all cursor-pointer group"
+                >
+                  <div className="h-44 sm:h-48 overflow-hidden bg-slate-100 relative">
+                    <img src={svc.image} alt={svc.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  </div>
+                  <div className="p-3 space-y-1.5">
+                    <h3 className="text-[13px] font-bold text-slate-900 leading-tight line-clamp-2 min-h-[36px]">{svc.name}</h3>
+                    <div className="flex items-center gap-1 text-xs text-slate-600">
+                      <Star className="w-3.5 h-3.5 fill-zinc-800 text-zinc-800" />
+                      <span className="font-medium">{svc.rating} ({svc.count})</span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[13px] font-extrabold text-slate-900">₹{svc.price}</span>
+                      {svc.original && <span className="text-xs text-slate-400 line-through">₹{svc.original}</span>}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                const el = document.getElementById('most-booked-scroll');
+                if (el) el.scrollBy({ left: 260, behavior: 'smooth' });
+              }}
+              className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white border border-slate-200 shadow-md items-center justify-center hover:bg-slate-50 hidden sm:flex"
+              aria-label="Scroll"
             >
-              <div>
-                {/* Header with Photo & Verification Badges */}
-                <div className="flex items-start gap-3.5">
-                  <img
-                    src={provider.avatar}
-                    alt={provider.name}
-                    className="w-16 h-16 rounded-2xl object-cover ring-2 ring-coop-500/20 shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <h4 className="text-base font-bold text-slate-900 truncate">
-                        {provider.name}
-                      </h4>
-                      {provider.isCoopMember && (
-                        <span className="px-2 py-0.5 rounded-md bg-coop-50 text-coop-700 text-[10px] font-extrabold border border-coop-200">
-                          Co-op Member
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-600 font-medium mt-0.5">{provider.title}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs">
-                      <span className="flex items-center gap-0.5 text-amber-600 font-bold">
-                        <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                        {provider.rating}
-                      </span>
-                      <span className="text-slate-400">•</span>
-                      <span className="text-slate-500">{provider.completedJobs} jobs done</span>
-                      <span className="text-slate-400">•</span>
-                      <span className="text-slate-500">{provider.experienceYears}+ yrs</span>
-                    </div>
+              <ArrowRight className="w-4 h-4 text-slate-700" />
+            </button>
+          </div>
+        )}
+      </motion.section>
+
+      {/* 4b. KITCHEN CLEANING BANNER — like reference: good thing about cleaned kitchen */}
+      <motion.section
+        variants={fadeInUp}
+        className="rounded-2xl overflow-hidden border border-[#C8D6FF] bg-[#E6ECFF] flex flex-col md:flex-row items-stretch"
+      >
+        <div className="flex-1 p-6 sm:p-8 md:p-10 flex flex-col justify-center space-y-4">
+          <div className="inline-flex items-center gap-1 text-[#1E2A5A] text-xs font-black tracking-widest uppercase">
+            <span>✦</span> KITCHEN CLEANING <span>✦</span>
+          </div>
+          <h3 className="text-3xl sm:text-4xl md:text-[38px] font-black text-[#1A244D] leading-tight font-display">
+            Get squeaky clean<br />kitchens
+          </h3>
+          <p className="text-sm sm:text-[14px] font-bold text-[#33406B] leading-relaxed max-w-md">
+            A hygienic kitchen keeps your family healthier — less grease, fewer germs, fresher air and a shine that lasts. Book a pro deep clean today.
+          </p>
+          <button
+            onClick={() => {
+              if (!requireAuthOrRedirect()) return;
+              const kitchenService = { id: 'srv-clean-01', name: 'Full Home Deep Cleaning' };
+              handleMostBookedBooking(kitchenService);
+            }}
+            className="mt-1 w-fit px-5 py-2.5 rounded-lg bg-black hover:bg-zinc-900 text-white text-xs font-bold shadow-sm transition-colors"
+          >
+            Explore now
+          </button>
+        </div>
+        <div className="flex-1 min-h-[220px] md:min-h-[280px] relative bg-white">
+          <img
+            src="https://images.unsplash.com/photo-1556911220-bff31c812dba?w=800&auto=format&fit=crop&q=80"
+            alt="Kitchen cleaning — sparkling kitchen"
+            className="w-full h-full object-cover min-h-[220px] md:min-h-[280px]"
+          />
+          {/* subtle sparkle overlay like reference */}
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute bottom-6 left-6 w-32 h-1.5 bg-white/80 blur-[1px] rounded-full" />
+          </div>
+        </div>
+      </motion.section>
+
+      {/* 4c. LATEST SERVICES — Car Washing, Closet Organiser */}
+      <motion.section
+        initial="visible"
+        animate="visible"
+        variants={staggerContainer}
+        className="space-y-4"
+      >
+        <motion.div variants={fadeInUp} className="flex items-center gap-2">
+          <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-[11px] font-extrabold border border-amber-200">NEW</span>
+          <h2 className="text-3xl font-black text-slate-900 font-display tracking-tight">Latest services</h2>
+        </motion.div>
+        <p className="text-sm font-semibold text-slate-600 -mt-2">Freshly launched — now available across all hub cities</p>
+        <div className="relative">
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide scroll-smooth pr-12">
+            {LATEST_SERVICES.map((svc) => (
+              <motion.div
+                key={svc.id}
+                variants={fadeInUp}
+                whileHover={{ y: -4 }}
+                onClick={() => handleLatestBooking(svc)}
+                className="min-w-[200px] sm:min-w-[220px] md:min-w-[260px] flex-shrink-0 snap-start bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-subtle hover:shadow-xl transition-all cursor-pointer group"
+              >
+                <div className="h-44 sm:h-48 overflow-hidden bg-slate-100 relative">
+                  <img src={svc.image} alt={svc.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-black text-white text-[10px] font-black shadow-sm border border-white/20">
+                    {svc.badge}
+                  </span>
+                </div>
+                <div className="p-3 space-y-1.5">
+                  <h3 className="text-[15px] font-black text-slate-900 leading-tight line-clamp-2 min-h-[36px]">{svc.name}</h3>
+                  <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
+                    <Star className="w-3.5 h-3.5 fill-zinc-800 text-zinc-800" />
+                    <span>{svc.rating} ({svc.count})</span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[14px] font-black text-slate-900">₹{svc.price}</span>
+                    {svc.original && <span className="text-xs text-slate-400 line-through">₹{svc.original}</span>}
                   </div>
                 </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </motion.section>
 
-                {/* Verification Badges Row */}
-                <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-100 text-[10px]">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold">
-                    <ShieldCheck className="w-3 h-3 text-coop-600" /> Identity Verified
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold">
-                    <CheckCircle2 className="w-3 h-3 text-brand-600" /> Skill Certified
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold">
-                    <MapPin className="w-3 h-3 text-slate-500" /> {provider.location.split('(')[0]}
-                  </span>
-                </div>
-
-                {/* Short Bio */}
-                <p className="text-xs text-slate-500 mt-2.5 line-clamp-2 leading-relaxed">
-                  {provider.bio}
-                </p>
+      {/* 4d. UPCOMING SERVICES — House Pickup Laundry Services */}
+      <motion.section
+        initial="visible"
+        animate="visible"
+        variants={staggerContainer}
+        className="space-y-4"
+      >
+        <motion.div variants={fadeInUp} className="flex items-center gap-2">
+          <span className="px-2.5 py-1 rounded-full bg-slate-900 text-white text-[11px] font-extrabold border border-slate-800">COMING SOON</span>
+          <h2 className="text-3xl font-black text-slate-900 font-display tracking-tight">Upcoming Services</h2>
+        </motion.div>
+        <p className="text-sm font-semibold text-slate-600 -mt-2">Get ready — launching soon in your city</p>
+        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory scrollbar-hide">
+          {UPCOMING_SERVICES.map((svc) => (
+            <motion.div
+              key={svc.id}
+              variants={fadeInUp}
+              className="min-w-[260px] sm:min-w-[300px] flex-shrink-0 snap-start bg-white rounded-2xl overflow-hidden border border-dashed border-slate-300 shadow-subtle opacity-90 relative"
+            >
+              <div className="h-44 sm:h-48 overflow-hidden bg-slate-100 relative">
+                <img src={svc.image} alt={svc.name} className="w-full h-full object-cover grayscale-[15%]" />
+                <div className="absolute inset-0 bg-white/25 backdrop-blur-[0.5px]" />
+                <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 rounded-full bg-black text-white text-xs font-black shadow-lg">
+                  Coming Soon
+                </span>
               </div>
-
-              {/* Pricing and CTAs */}
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] text-slate-400 font-semibold uppercase">Inspection Base</div>
-                  <div className="text-sm font-extrabold text-slate-900">
-                    ₹{provider.basePrice}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedProviderForProfile(provider)}
-                    className="px-3 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
-                  >
-                    View Profile
-                  </button>
-                  <button
-                    onClick={() => setSelectedProviderForBooking(provider)}
-                    className="px-4 py-2 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1"
-                  >
-                    <span>Book Now</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              <div className="p-4 space-y-1.5">
+                <h3 className="text-[15px] font-black text-slate-900 leading-tight">{svc.name}</h3>
+                <p className="text-xs font-semibold text-slate-500">House pickup &amp; delivery — wash, iron &amp; fold. Stay tuned!</p>
+                <button disabled className="mt-1 w-full py-2 rounded-xl bg-slate-100 text-slate-400 text-xs font-black cursor-not-allowed border border-slate-200">
+                  Notify Me
+                </button>
               </div>
             </motion.div>
           ))}
@@ -552,10 +772,10 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
             <HeartHandshake className="w-3.5 h-3.5 text-coop-300" />
             <span>Cooperative Community Impact</span>
           </div>
-          <h3 className="text-2xl font-bold font-display text-white">
+          <h3 className="text-3xl font-black font-display text-white leading-tight">
             Where your service fee stays in your neighborhood.
           </h3>
-          <p className="text-xs text-slate-200 leading-relaxed font-light">
+          <p className="text-sm font-semibold text-slate-100 leading-relaxed">
             Every booking contributes 4% to the Zolve Member Welfare Fund, sponsoring tool grants, accident insurance, and free civic electrical safety drives for senior citizens.
           </p>
         </div>

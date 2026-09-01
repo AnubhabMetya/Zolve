@@ -109,7 +109,7 @@ export const JoinExecutivePage = () => {
     <div className="pb-16 space-y-8">
       <div className="rounded-3xl bg-gradient-to-br from-brand-900 via-brand-950 to-coop-950 text-white p-8">
         <h1 className="text-3xl font-extrabold font-display">Join as Executive</h1>
-        <p className="text-sm text-slate-300 mt-2 max-w-2xl">Choose your vertical. Household (8 services), Personal & Family (3), or Community & Society (3 — requires Society Admin approval). Mobile OTP verification required. Demo OTP: <strong className="text-amber-300">123456</strong></p>
+        <p className="text-sm text-slate-300 mt-2 max-w-2xl">Choose your vertical. Household (8 services), Personal & Family (3), or Community & Society (3 — requires Society Admin approval). Mobile OTP verification required.</p>
       </div>
 
       {step === 1 && (
@@ -140,7 +140,7 @@ export const JoinExecutivePage = () => {
           <div><label className="text-xs font-bold">Mobile Number (10-digit)</label><div className="relative mt-1"><Phone className="w-4 h-4 absolute left-3 top-3 text-slate-400" /><input required value={mobileNumber} onChange={e=>setMobileNumber(e.target.value)} placeholder="98765 43210" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs" /></div></div>
           <div><label className="text-xs font-bold">Email</label><div className="relative mt-1"><Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" /><input required type="email" value={gmailAddress} onChange={e=>setGmailAddress(e.target.value)} placeholder="you@gmail.com" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs" /></div></div>
           <button type="submit" disabled={isSending} className="w-full py-3 rounded-xl bg-brand-900 text-white text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60"><Send className="w-4 h-4" />{isSending? 'Sending OTP via SMS...':'Send Mobile OTP'}</button>
-          <p className="text-[10px] text-slate-400 text-center">True SMS via MSG91/n8n. Demo fallback OTP <strong>123456</strong> always works when gateway unconfigured.</p>
+          <p className="text-[10px] text-slate-400 text-center">True SMS via MSG91/n8n. Check SMS for OTP.</p>
         </form>
       )}
 
@@ -148,7 +148,7 @@ export const JoinExecutivePage = () => {
         <form onSubmit={handleVerify} className="max-w-xl mx-auto bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 space-y-5">
           <h2 className="text-lg font-bold">Enter 6-Digit Mobile OTP</h2>
           <p className="text-xs text-slate-500">Sent to <strong>{mobileNumber}</strong> {sendInfo?.via && <span className="text-[10px] text-slate-400">({sendInfo.via})</span>}</p>
-          {sendInfo?.fallback && <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">{sendInfo.error} — try 123456</div>}
+          {sendInfo?.fallback && <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">{sendInfo.error}</div>}
           <div className="flex gap-2 justify-between">
             {otpDigits.map((d,i)=> <input key={i} ref={el=>refs.current[i]=el} value={d} onChange={e=>handleOtpChange(i,e.target.value)} onKeyDown={e=>handleKeyDown(i,e)} maxLength={1} className="w-12 h-14 text-center text-xl font-mono font-bold rounded-xl border-2 border-slate-200 focus:border-brand-600 focus:outline-none bg-slate-50" />)}
           </div>

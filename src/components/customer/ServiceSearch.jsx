@@ -16,6 +16,7 @@ import {
   Zap,
   Briefcase
 } from 'lucide-react';
+import { SERVICE_RADIUS_KM } from '../../services/locationService';
 
 export const ServiceSearch = ({ initialSearch = '' }) => {
   const {
@@ -23,11 +24,26 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     serviceCategories,
     setSelectedProviderForBooking,
     setSelectedProviderForProfile,
-    selectedLocation
+    selectedLocation,
+    currentUser,
+    setIsAuthModalOpen,
+    setAuthModalTab,
+    setIsLocationModalOpen
   } = useApp();
-  const userCoords = typeof selectedLocation === 'string' ? { lat: 12.9784, lng: 77.6408 } : (selectedLocation?.lat ? selectedLocation : { lat: 12.9784, lng: 77.6408 });
 
-  const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const requireAuthOrRedirect = () => {
+    if (!currentUser) {
+      setAuthModalTab('register');
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+  const userCoords = typeof selectedLocation === 'string' ? { lat: 12.9784, lng: 77.6408 } : (selectedLocation?.lat ? selectedLocation : { lat: 12.9784, lng: 77.6408 });
+  const selectedLocationName = typeof selectedLocation === 'string' ? selectedLocation : (selectedLocation?.name || 'your location');
+  const hasExplicitLocation = selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null;
+
+  const [searchQuery, setSearchQuery] = useState(initialSearch || '');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [minRating, setMinRating] = useState(0);
   const [maxPrice, setMaxPrice] = useState(2500);
@@ -42,18 +58,20 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
   const haversineSortKm = (lat1, lng1, lat2, lng2) => {
     const R = 6371;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lng1) * Math.PI) / 180;
+    const dLon = ((lng2 - lng1) * Math.PI) / 180;
     const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(a));
   };
 
   // Filtered & Sorted Providers List
   const filteredProviders = useMemo(() => {
+    if (!providers || !Array.isArray(providers)) return [];
+    if (!userCoords || userCoords.lat == null) return [];
     return providers
       .map((p) => ({ ...p, _distanceKm: p.coords ? haversineSortKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) : 999 }))
       .filter((p) => {
         // Search text matching name, title, skills, categories
-        if (searchQuery.trim()) {
+        if (searchQuery && searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           const matchesName = p.name.toLowerCase().includes(q);
           const matchesTitle = p.title.toLowerCase().includes(q);
@@ -79,6 +97,9 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
 
         // Cooperative members only
         if (coopMembersOnly && !p.isCoopMember) return false;
+
+        // 50km executive corporate coverage — automatically adjusts to GPS/pincode
+        if (p._distanceKm > SERVICE_RADIUS_KM) return false;
 
         return true;
       })
@@ -109,8 +130,11 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
             Find Trusted Local Service Providers
           </h1>
           <p className="text-xs text-slate-300">
-            Showing verified professionals active near <strong className="text-coop-300">{typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name}</strong> {userCoords && <span className="text-[11px] text-slate-400">({userCoords.lat.toFixed(3)}, {userCoords.lng.toFixed(3)})</span>}
+            Showing verified professionals active near <strong className="text-coop-300">{selectedLocationName}</strong> {userCoords && <span className="text-[11px] text-slate-400">({userCoords.lat.toFixed(3)}, {userCoords.lng.toFixed(3)})</span>} — {SERVICE_RADIUS_KM}km executive coverage
           </p>
+          {hasExplicitLocation && filteredProviders.length === 0 && (
+            <p className="text-[11px] text-amber-200 mt-1">Services not available in this area.</p>
+          )}
         </div>
 
         {/* Search & Sort Bar */}
@@ -143,6 +167,19 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
           </div>
         </div>
       </div>
+
+      {filteredProviders.length === 0 && hasExplicitLocation && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-red-600 text-white"><MapPin className="w-5 h-5" /></div>
+            <div>
+              <div className="text-sm font-bold text-red-900">Services not available in this area</div>
+              <div className="text-xs text-red-700">No executive corporate member within {SERVICE_RADIUS_KM} km of <strong>{selectedLocationName}</strong>. We serve Delhi, Gurgaon, Mumbai, Ahmedabad, Pune, Chennai, Visakhapatnam, Indore, Patna, Lucknow, Kolkata, Siliguri, Bengaluru, Hyderabad, Jaipur (±50km each).</div>
+            </div>
+          </div>
+          <button onClick={() => setIsLocationModalOpen(true)} className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shrink-0">Change Location / Pincode</button>
+        </div>
+      )}
 
       {/* Main Grid: Filters Sidebar + Results */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
@@ -271,9 +308,9 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
               <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 mx-auto flex items-center justify-center">
                 <Search className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 font-display">No providers found in this filter</h3>
+              <h3 className="text-lg font-bold text-slate-900 font-display">{hasExplicitLocation ? 'Services not available in this area' : 'No providers found in this filter'}</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Try loosening your price slider, clearing search tags, or checking adjacent neighborhoods.
+                {hasExplicitLocation ? `No provider within ${SERVICE_RADIUS_KM} km of ${selectedLocationName}. Change location/pincode to a nearby hub city or reset filters.` : 'Try loosening your price slider, clearing search tags, or checking adjacent neighborhoods.'}
               </p>
               <button
                 onClick={() => {
@@ -296,16 +333,14 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
                   className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle hover:shadow-xl transition-all p-5 sm:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 group"
                 >
                   <div className="flex items-start gap-4 sm:gap-5 flex-1 min-w-0">
-                    <img
-                      src={provider.avatar}
-                      alt={provider.name}
-                      className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover ring-2 ring-coop-500/20 shrink-0"
-                    />
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-8 h-8 text-coop-600" />
+                    </div>
 
                     <div className="space-y-2 flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-base sm:text-lg font-bold text-slate-900 truncate">
-                          {provider.name}
+                          Verified Executive <span className="text-slate-400 font-normal">• ID {provider.id.slice(-4).toUpperCase()}</span>
                         </h3>
                         {provider.isCoopMember ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-coop-50 text-coop-700 text-[10px] font-extrabold border border-coop-200">
@@ -318,7 +353,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
                         )}
                       </div>
 
-                      <p className="text-xs text-slate-600 font-medium">{provider.title}</p>
+                      <p className="text-xs text-slate-600 font-medium">{provider.title} <span className="text-[11px] text-slate-400">— name revealed at billing</span></p>
 
                       {/* Ratings & Metrics */}
                       <div className="flex items-center gap-3 text-xs text-slate-600 flex-wrap">
@@ -364,13 +399,13 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setSelectedProviderForProfile(provider)}
-                        className="px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 transition-colors"
-                      >
-                        View Profile
-                      </button>
-                      <button
-                        onClick={() => setSelectedProviderForBooking(provider)}
+                        onClick={() => {
+                          if (!requireAuthOrRedirect()) return;
+                          // Randomize among eligible nearby for identity protection — pick random if provider list is filtered
+                          const pool = filteredProviders.filter(p => p.isCoopMember);
+                          const chosen = pool.length ? pool[Math.floor(Math.random() * pool.length)] : provider;
+                          setSelectedProviderForBooking(chosen);
+                        }}
                         className="px-5 py-2.5 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
                       >
                         <span>Book Service</span>

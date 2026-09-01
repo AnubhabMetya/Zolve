@@ -65,16 +65,16 @@ export const InvoiceModal = () => {
           <div className="grid grid-cols-2 gap-6 text-xs">
             <div className="space-y-1">
               <div className="text-[10px] font-bold text-slate-400 uppercase">Billed To</div>
-              <div className="font-bold text-slate-900">{b.customerName || 'Anubhab Metya'}</div>
-              <div className="text-slate-600 line-clamp-2">{b.address}</div>
-              <div className="text-slate-500">{b.customerPhone}</div>
+              <div className="font-bold text-slate-900 dark:text-white">{b.customerName || 'Anubhab Metya'}</div>
+              <div className="text-slate-600 dark:text-slate-300 line-clamp-2">{b.address}</div>
+              <div className="text-slate-500 dark:text-slate-400">{b.customerPhone}</div>
             </div>
 
             <div className="space-y-1 text-right">
               <div className="text-[10px] font-bold text-slate-400 uppercase">Fulfillment Partner</div>
-              <div className="font-bold text-slate-900">{b.providerName}</div>
-              <div className="text-slate-600">{b.providerTitle}</div>
-              <div className="text-coop-700 font-semibold">{b.isCoopMember ? "Cooperative Delegate" : "Verified Pro"}</div>
+              <div className="font-black text-slate-900 dark:text-white text-sm">{b.providerName || 'Zolve Executive'}</div>
+              <div className="text-slate-600 dark:text-slate-300 text-xs">{b.providerTitle}</div>
+              <div className="text-coop-700 dark:text-coop-300 font-bold text-xs">{b.isCoopMember ? "Cooperative Delegate" : "Verified Pro"}</div>
             </div>
           </div>
 

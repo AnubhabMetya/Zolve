@@ -8,8 +8,8 @@ const MSG91_AUTH_KEY = import.meta.env.VITE_MSG91_AUTH_KEY || null;
 const MSG91_TEMPLATE_ID = import.meta.env.VITE_MSG91_TEMPLATE_ID || null;
 const MSG91_SENDER_ID = import.meta.env.VITE_MSG91_SENDER_ID || 'ZOLVEO';
 
-export const MASTER_OTP = '123456';
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// MASTER_OTP removed — Supabase is the only auth source of truth; no hardcoded bypass
 
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -76,13 +76,13 @@ export const sendMobileOtp = async (phone, otpCode, userName = 'User') => {
     }
   }
 
-  // 3. Dev fallback — log OTP, allow master OTP
-  console.warn(`[DEV FALLBACK] MSG91 not configured. OTP for 91${digits} (${userName}): ${otpCode} | Master: ${MASTER_OTP}`);
+  // 3. Dev fallback — log OTP (no master bypass)
+  console.warn(`[DEV FALLBACK] MSG91 not configured. OTP for 91${digits} (${userName}): ${otpCode}`);
   return {
     success: false,
     fallback: true,
     via: 'dev-fallback',
-    error: 'SMS gateway not configured — use OTP 123456 for demo',
+    error: 'SMS gateway not configured — check logs for OTP',
     devOtp: otpCode
   };
 };
@@ -90,8 +90,8 @@ export const sendMobileOtp = async (phone, otpCode, userName = 'User') => {
 export const verifyMobileOtp = (inputOtp, expectedOtp, expiresAt = null) => {
   if (!inputOtp || inputOtp.length !== 6) return { valid: false, error: 'Enter 6-digit OTP' };
   if (expiresAt && Date.now() > expiresAt) return { valid: false, error: 'OTP expired. Please resend.' };
-  if (inputOtp === expectedOtp || inputOtp === MASTER_OTP) return { valid: true };
-  return { valid: false, error: 'Incorrect OTP. Check SMS or try 123456 for demo.' };
+  if (inputOtp === expectedOtp) return { valid: true };
+  return { valid: false, error: 'Incorrect OTP. Check SMS.' };
 };
 
 export const createOtpSession = (phone) => {

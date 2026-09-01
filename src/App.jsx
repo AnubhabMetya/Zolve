@@ -1,11 +1,18 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './context/AppContext';
 import { Navbar } from './components/layout/Navbar';
 import { Footer } from './components/layout/Footer';
 import { LocationModal } from './components/layout/LocationModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { AICopilotDrawer } from './components/ai/AICopilotDrawer';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { AuthCallback } from './components/auth/AuthCallback';
+import { LoginPage } from './pages/LoginPage';
+import { SignupPage } from './pages/SignupPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 
 // Customer Modules
 import { CustomerDashboard } from './components/customer/CustomerDashboard';
@@ -37,6 +44,25 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { ProfilePage } from './components/profile/ProfilePage';
 import { getVisibleBookings } from './services/accessControl';
 
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error('ErrorBoundary caught:', error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 m-4 rounded-2xl bg-red-50 border border-red-200 text-red-900">
+          <h2 className="text-lg font-black">Something went wrong</h2>
+          <p className="text-xs mt-1">Error: {String(this.state.error?.message || this.state.error)}</p>
+          <button onClick={() => this.setState({ hasError: false, error: null })} className="mt-3 px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-bold">Try Again</button>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="ml-2 mt-3 px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold">Clear Storage & Reload</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function AppContent() {
   const {
     currentUser,
@@ -48,6 +74,8 @@ export function AppContent() {
     setIsAuthModalOpen,
     setAuthModalTab
   } = useApp();
+  const navigate = useNavigate()
+  const location = useLocation()
   const visibleBookings = getVisibleBookings(bookings, currentUser);
 
   const [searchParam, setSearchParam] = useState('');
@@ -55,6 +83,25 @@ export function AppContent() {
   const handleOpenSearchWithCategory = (catName) => {
     setSearchParam(catName);
     setActiveTab('search');
+    if (location.pathname !== '/search') navigate('/search');
+  };
+
+  const handleNavClick = (tabKey) => {
+    // Map activeTab to route for React Router, keep public browsing accessible
+    const routeMap = {
+      home: '/',
+      search: '/search',
+      bookings: '/bookings',
+      payments: '/payments',
+      profile: '/profile',
+      provider: '/provider',
+      admin: '/admin',
+      dashboard: '/dashboard',
+    };
+    const target = routeMap[tabKey] || '/';
+    if (location.pathname !== target) navigate(target);
+    setActiveTab(tabKey);
+    setIsMobileMenuOpen(false);
   };
 
   // Sync /join-executive URL to activeTab and handle AppContext navigate events
@@ -76,14 +123,29 @@ export function AppContent() {
     else if (window.location.pathname === '/join-executive') window.history.pushState({}, '', '/');
   }, [activeTab]);
 
+  const isStandalonePage = ['/login','/signup','/forgot','/reset','/auth/callback','/search'].includes(location.pathname)
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC] dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-brand-500 selection:text-white">
-      {/* Top Main Navigation */}
-      <Navbar />
+      {/* Top Main Navigation — hidden on standalone auth/search pages for true separate landing */}
+      {!isStandalonePage && <Navbar />}
 
       {/* Main Content View Switcher */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-8">
-        <AnimatePresence mode="wait">
+      <main className={isStandalonePage ? "flex-1 w-full" : "flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-8"}>
+        <ErrorBoundary>
+        <Routes>
+          <Route path="/login" element={<div className="min-h-[80vh] flex flex-col bg-[#F8FAFC] dark:bg-slate-950"><div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3"><button onClick={()=>navigate('/')} className="flex items-center gap-2"><div className="w-8 h-8 rounded-xl bg-black text-white font-black flex items-center justify-center">Z</div><span className="font-extrabold">Zolve</span></button><span className="text-xs text-slate-400">— Secure Auth</span></div></div><LoginPage /></div>} />
+          <Route path="/signup" element={<div className="min-h-[80vh] flex flex-col bg-[#F8FAFC] dark:bg-slate-950"><div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3"><button onClick={()=>navigate('/')} className="flex items-center gap-2"><div className="w-8 h-8 rounded-xl bg-black text-white font-black flex items-center justify-center">Z</div><span className="font-extrabold">Zolve</span></button><span className="text-xs text-slate-400">— Create Account</span></div></div><SignupPage /></div>} />
+          <Route path="/forgot" element={<div className="min-h-[80vh] flex flex-col bg-[#F8FAFC] dark:bg-slate-950"><div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3"><button onClick={()=>navigate('/')} className="flex items-center gap-2"><div className="w-8 h-8 rounded-xl bg-black text-white font-black flex items-center justify-center">Z</div><span className="font-extrabold">Zolve</span></button><span className="text-xs text-slate-400">— Reset Password</span></div></div><ForgotPasswordPage /></div>} />
+          <Route path="/reset" element={<div className="min-h-[80vh] flex flex-col bg-[#F8FAFC] dark:bg-slate-950"><div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3"><button onClick={()=>navigate('/')} className="flex items-center gap-2"><div className="w-8 h-8 rounded-xl bg-black text-white font-black flex items-center justify-center">Z</div><span className="font-extrabold">Zolve</span></button><span className="text-xs text-slate-400">— Set New Password</span></div></div><ResetPasswordPage /></div>} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/dashboard" element={<ProtectedRoute><CustomerDashboard onOpenSearchWithCategory={handleOpenSearchWithCategory} /></ProtectedRoute>} />
+          <Route path="/provider" element={<ProtectedRoute roles={['provider']}><ProviderDashboard /></ProtectedRoute>} />
+          <Route path="/search" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><div className="mb-4 flex items-center gap-2 text-xs text-slate-500"><button onClick={()=>navigate('/')} className="hover:underline">← Back to Home</button><span>•</span><span>Explore Services</span></div><ServiceSearch initialSearch={searchParam} /></div>} />
+          <Route path="/bookings" element={<ProtectedRoute><div className="space-y-6 pb-16"><div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-subtle flex items-center justify-between"><div><h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-display">My Bookings ({visibleBookings.length})</h1><p className="text-xs text-slate-500 mt-1">Track real-time provider arrival, chat with technicians, and review completed services.</p></div></div><div className="space-y-4">{!currentUser ? <div className="p-8 rounded-3xl bg-white border text-center"><p className="text-sm font-bold">Sign in to view your bookings</p><button onClick={()=>navigate('/login')} className="mt-3 px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Sign In</button></div> : visibleBookings.length===0 ? <div className="p-8 rounded-3xl bg-white border text-center text-sm text-slate-500">No bookings found.</div> : visibleBookings.map((b)=>(<div key={b.id} className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-subtle flex flex-col md:flex-row items-start md:items-center justify-between gap-6"><div className="flex items-start gap-4"><img src={b.providerAvatar} alt={b.providerName} className="w-16 h-16 rounded-2xl object-cover" /><div><span className="px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-700 font-bold text-xs">#{b.bookingCode}</span><h3 className="text-base font-bold text-slate-900">{b.serviceName}</h3><p className="text-xs text-slate-500">Provider: <strong className="text-slate-800">{b.providerName}</strong></p></div></div><button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Track & Details</button></div>))}</div></div></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          <Route path="/payments" element={<ProtectedRoute><CustomerPaymentHistory /></ProtectedRoute>} />
+          <Route path="/*" element={<AnimatePresence mode="wait">
           {/* PUBLIC & CUSTOMER VIEWS */}
           {activeTab === 'home' && (
             <motion.div
@@ -125,6 +187,7 @@ export function AppContent() {
           )}
 
           {activeTab === 'bookings' && (
+            <ProtectedRoute>
             <motion.div
               key="bookings"
               initial={{ opacity: 0, y: 12 }}
@@ -145,15 +208,9 @@ export function AppContent() {
             </div>
 
             <div className="space-y-4">
-              {!currentUser ? (
-                <div className="p-8 rounded-3xl bg-white border text-center">
-                  <p className="text-sm font-bold">Sign in to view your bookings</p>
-                  <p className="text-xs text-slate-500 mt-1">Zero order history until you book. Executives must verify mobile to see vertical orders.</p>
-                  <button onClick={()=>{ setAuthModalTab('signin'); setIsAuthModalOpen(true); }} className="mt-3 px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Sign In</button>
-                </div>
-              ) : visibleBookings.length===0 ? (
+              {visibleBookings.length===0 ? (
                 <div className="p-8 rounded-3xl bg-white border text-center text-sm text-slate-500">No bookings found for your account. {currentUser.role==='executive' && currentUser.executiveStatus==='pending_approval' ? 'Community executive pending Society Admin approval.' : 'Book a service to see it here.'}</div>
-              ) : visibleBookings.map((b) => (
+              )               : visibleBookings.map((b) => (
                 <div
                   key={b.id}
                   className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-subtle flex flex-col md:flex-row items-start md:items-center justify-between gap-6"
@@ -198,18 +255,22 @@ export function AppContent() {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </motion.div></ProtectedRoute>
         )}
 
         {activeTab === 'payments' && (
+          <ProtectedRoute>
           <motion.div key="payments" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.3 }}>
             <CustomerPaymentHistory />
           </motion.div>
+          </ProtectedRoute>
         )}
         {activeTab === 'earnings' && (
+          <ProtectedRoute roles={['provider']}>
           <motion.div key="earnings" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.3 }}>
             <EarningsLedger />
           </motion.div>
+          </ProtectedRoute>
         )}
         {activeTab === 'cooperative' && (
           <motion.div key="cooperative" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.3 }}>
@@ -237,20 +298,27 @@ export function AppContent() {
           </motion.div>
         )}
         {activeTab === 'admin' && (
+          <ProtectedRoute roles={['admin']}>
           <motion.div key="admin" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.3 }}>
             <AdminDashboard />
           </motion.div>
+          </ProtectedRoute>
         )}
         {activeTab === 'profile' && (
+          <ProtectedRoute>
           <motion.div key="profile" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.3 }}>
             <ProfilePage />
           </motion.div>
+          </ProtectedRoute>
         )}
         </AnimatePresence>
+        } />
+        </Routes>
+        </ErrorBoundary>
       </main>
 
-      {/* Global Footer */}
-      <Footer />
+      {/* Global Footer — hidden on standalone auth/search pages for true separate landing */}
+      {!isStandalonePage && <Footer />}
 
       {/* GLOBAL MODALS & DRAWERS */}
       <LocationModal />
