@@ -23,7 +23,6 @@ export const LoginPage = () => {
   const handleLogin = async (e) => {
     e.preventDefault()
     setError(''); setInfo('')
-    if (!isSupabaseConfigured) { setError('Supabase not configured. Check env.'); return }
     if (!validate()) return
     setLoading(true)
     try {
@@ -39,7 +38,6 @@ export const LoginPage = () => {
 
   const handleGoogle = async () => {
     setError(''); setInfo('')
-    if (!isSupabaseConfigured) { setError('Supabase not configured. Check env.'); return }
     setGoogleLoading(true)
     try { await signInWithGoogle() } catch (err) {
       const msg = err?.message || 'Google login failed'

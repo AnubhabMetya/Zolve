@@ -2,13 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   X,
-  Calendar as CalendarIcon,
   Clock,
   MapPin,
   ShieldCheck,
   CreditCard,
   CheckCircle2,
-  ArrowRight,
   ArrowLeft,
   Sparkles,
   AlertCircle,
@@ -100,8 +98,27 @@ export const BookingModal = () => {
 
   const p = selectedProviderForBooking;
 
-  // Form Inputs
+  // --- All state declared before effects (fixes oxlint immutability warnings) ---
   const [serviceDescription, setServiceDescription] = useState('Circuit breaker tripping and spark near kitchen switchboard.');
+  // IST real-time tick — refresh every 60s so 2-hour rule stays live while modal open
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [selectedDate, setSelectedDate] = useState(() => getISTDateStr());
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
+  const [selectedAddress, setSelectedAddress] = useState(
+    currentUser?.savedAddresses?.[0]?.addressLine || 'Flat 402, Sunshine Heights, 12th Main, Indiranagar, Bengaluru - 560038'
+  );
+  const [customAddress, setCustomAddress] = useState('');
+  const [isCustomAddress, setIsCustomAddress] = useState(false);
+  const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || { lat: 12.9784, lng: 77.6408 });
+  const [gpsLoadingAddress, setGpsLoadingAddress] = useState(false);
+  const [gpsAddrError, setGpsAddrError] = useState('');
+  const [addrSearchResults, setAddrSearchResults] = useState([]);
+  const [addrSearching, setAddrSearching] = useState(false);
+  const [pinCodeBooking, setPinCodeBooking] = useState('');
+  const [pinBookingLoading, setPinBookingLoading] = useState(false);
+  const [pinBookingError, setPinBookingError] = useState('');
+  const hasAutoLocatedRef = React.useRef(false);
+  const addrDebounceRef = React.useRef(null);
 
   // Prefill from image AI detector — allow anonymous upload → direct booking
   useEffect(() => {
@@ -163,31 +180,11 @@ export const BookingModal = () => {
   useEffect(() => {
     if (!selectedProviderForBooking) hasAutoLocatedRef.current = false;
   }, [selectedProviderForBooking]);
-  // IST real-time tick — refresh every 60s so 2-hour rule stays live while modal open
-  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (!selectedProviderForBooking) return;
     const id = setInterval(() => setNowMs(Date.now()), 60000);
     return () => clearInterval(id);
   }, [selectedProviderForBooking]);
-
-  const [selectedDate, setSelectedDate] = useState(() => getISTDateStr());
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
-  const [selectedAddress, setSelectedAddress] = useState(
-    currentUser?.savedAddresses?.[0]?.addressLine || 'Flat 402, Sunshine Heights, 12th Main, Indiranagar, Bengaluru - 560038'
-  );
-  const [customAddress, setCustomAddress] = useState('');
-  const [isCustomAddress, setIsCustomAddress] = useState(false);
-  const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || { lat: 12.9784, lng: 77.6408 });
-  const [gpsLoadingAddress, setGpsLoadingAddress] = useState(false);
-  const [gpsAddrError, setGpsAddrError] = useState('');
-  const [addrSearchResults, setAddrSearchResults] = useState([]);
-  const [addrSearching, setAddrSearching] = useState(false);
-  const [pinCodeBooking, setPinCodeBooking] = useState('');
-  const [pinBookingLoading, setPinBookingLoading] = useState(false);
-  const [pinBookingError, setPinBookingError] = useState('');
-  const hasAutoLocatedRef = React.useRef(false);
-  const addrDebounceRef = React.useRef(null);
 
   // India-wide autocomplete for custom address (Nominatim countrycodes=in)
   useEffect(() => {
@@ -243,12 +240,27 @@ export const BookingModal = () => {
   const requestedRedeem = useZolveMoney ? (isNaN(parsedInput) ? Math.min(availableBalance, grossTotal) : Math.min(Math.max(0, parsedInput), availableBalance, grossTotal)) : 0;
   const totalAmount = grossTotal - requestedRedeem;
 
+  // Derived IST date options for Step 2 (memoized to avoid IIFE in JSX)
+  const istDateOptions = React.useMemo(() => {
+    const today = getISTDateStr(new Date(nowMs));
+    const tomorrow = addDaysIST(today, 1);
+    const dayAfter = addDaysIST(today, 2);
+    return [
+      { label: 'Today', date: today },
+      { label: 'Tomorrow', date: tomorrow },
+      { label: getWeekdayIST(dayAfter), date: dayAfter },
+    ];
+  }, [nowMs]);
+  const istTodayHasEligible = React.useMemo(() => {
+    const today = getISTDateStr(new Date(nowMs));
+    return SLOT_DEFINITIONS.some(s => isSlotEligible(today, s, nowMs));
+  }, [nowMs]);
+
   // Payment Processing State
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [isRazorpayModalOpen, setIsRazorpayModalOpen] = useState(false);
   const [paymentMethodChoice, setPaymentMethodChoice] = useState('upi'); // 'upi' | 'card' | 'netbanking'
   const [upiId, setUpiId] = useState('anubhab@oksbi');
-  const [paymentSuccessData, setPaymentSuccessData] = useState(null);
 
   if (!selectedProviderForBooking) return null;
 
@@ -298,7 +310,7 @@ export const BookingModal = () => {
     try {
       // Step 1: Secure Order Creation via server / n8n workflow
       const tempBookingId = `bk-temp-${Date.now()}`;
-      const order = await createRazorpayOrder({
+      await createRazorpayOrder({
         bookingId: tempBookingId,
         amount: totalAmount,
         customerId: currentUser.id,
@@ -487,19 +499,7 @@ export const BookingModal = () => {
             )}
 
             {/* STEP 2: DATE & TIME SLOT — REAL IST + 2-HOUR RULE */}
-            {step === 2 && (() => {
-              const todayIST = getISTDateStr(new Date(nowMs));
-              const tomorrowIST = addDaysIST(todayIST, 1);
-              const dayAfterIST = addDaysIST(todayIST, 2);
-              const dayAfterLabel = getWeekdayIST(dayAfterIST);
-              const dateOptions = [
-                { label: 'Today', date: todayIST },
-                { label: 'Tomorrow', date: tomorrowIST },
-                { label: dayAfterLabel, date: dayAfterIST },
-              ];
-              const isToday = selectedDate === todayIST;
-              const todayHasEligible = SLOT_DEFINITIONS.some(s => isSlotEligible(todayIST, s, nowMs));
-              return (
+            {step === 2 && (
               <div className="space-y-4 animate-in fade-in">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 font-display">
@@ -513,7 +513,7 @@ export const BookingModal = () => {
                 <div className="space-y-2">
                   <label className="block text-xs font-bold text-slate-700">Select Date</label>
                   <div className="grid grid-cols-3 gap-2.5">
-                    {dateOptions.map((d) => (
+                    {istDateOptions.map((d) => (
                       <button
                         key={d.date}
                         type="button"
@@ -529,8 +529,8 @@ export const BookingModal = () => {
                       </button>
                     ))}
                   </div>
-                  {isToday && !todayHasEligible && (
-                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">No slots left today — all start times are within 2 hours from now. Please choose <strong>Tomorrow</strong> or {dayAfterLabel}.</p>
+                  {selectedDate === getISTDateStr(new Date(nowMs)) && !istTodayHasEligible && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">No slots left today — all start times are within 2 hours from now. Please choose <strong>Tomorrow</strong> or {istDateOptions[2]?.label}.</p>
                   )}
                 </div>
 
@@ -545,6 +545,7 @@ export const BookingModal = () => {
                         key={slot}
                         type="button"
                         disabled={!eligible}
+                        aria-disabled={!eligible}
                         onClick={() => eligible && setSelectedTimeSlot(slot)}
                         title={!eligible ? 'Unavailable — starts less than 2 hours from now' : ''}
                         className={`p-3 rounded-xl border text-xs text-left transition-all ${
@@ -566,7 +567,7 @@ export const BookingModal = () => {
                   <p className="text-[10px] text-slate-400">Slots start times are compared as IST timestamps: slot must start ≥ 2 hours after now. Refreshes every 60s.</p>
                 </div>
               </div>
-            )})()}
+            )}
 
             {/* STEP 3: ADDRESS */}
             {step === 3 && (

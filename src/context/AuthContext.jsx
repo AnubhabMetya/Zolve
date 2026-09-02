@@ -37,19 +37,13 @@ export const AuthProvider = ({ children }) => {
       // If DB migration not yet run, profiles.phone may be null even though user updated auth metadata or fallback localStorage
       // Merge fallback so UI/booking still has number and executive can contact
       if (data && !data.phone) {
-        const fallbackPhone = (() => {
-          try {
-            const k = `zolve_phone_fallback_${userId}`
-            const v = localStorage.getItem(k)
-            if (v && /^[6-9]\d{9}$/.test(v)) return v
-          } catch {}
-          return null
-        })()
-        const metaPhone = (() => {
-          try { return data?.phone || null } catch { return null }
-        })()
-        // also try user metadata if available via auth
-        if (fallbackPhone && !data.phone) data.phone = fallbackPhone
+        let fallbackPhone = null
+        try {
+          const k = `zolve_phone_fallback_${userId}`
+          const v = localStorage.getItem(k)
+          if (v && /^[6-9]\d{9}$/.test(v)) fallbackPhone = v
+        } catch {}
+        if (fallbackPhone) data.phone = fallbackPhone
       }
       return data
     } catch (e) {
@@ -109,7 +103,7 @@ export const AuthProvider = ({ children }) => {
   }, [fetchProfile])
 
   const signUp = async ({ fullName, email, password, role, phone }) => {
-    if (!isSupabaseConfigured()) throw new Error('Supabase not configured')
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured — add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env and restart dev server (Ctrl+C → npm run dev)')
     const safeRole = role === 'provider' ? 'provider' : 'customer'
     const normalizedPhone = phone ? phone.replace(/\D/g, '').slice(-10) : null
     if (normalizedPhone && !/^[6-9]\d{9}$/.test(normalizedPhone)) throw new Error('Enter valid 10-digit Indian mobile number')
@@ -125,14 +119,14 @@ export const AuthProvider = ({ children }) => {
   }
 
   const signIn = async ({ email, password }) => {
-    if (!isSupabaseConfigured()) throw new Error('Supabase not configured')
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured — add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env and restart dev server (Ctrl+C → npm run dev)')
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
     return data
   }
 
   const signInWithGoogle = async () => {
-    if (!isSupabaseConfigured()) throw new Error('Supabase not configured — check VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY')
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured — add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env and restart dev server')
     // Verify Google provider will be validated by Supabase; surface clear error if not enabled
     const redirectTo = `${window.location.origin}/auth/callback`
     const { data, error } = await supabase.auth.signInWithOAuth({

@@ -27,8 +27,8 @@ const STORAGE_KEY_PREFIX = 'zolve_app_state_v1';
 export const AppProvider = ({ children }) => {
   // 1. Auth State — Delegated to Supabase AuthContext (single source of truth)
   // currentUser/activeRole now derived from Supabase session/profile, not localStorage
-  let auth = null
-  try { auth = useAuth() } catch { auth = null }
+  // useAuth is unconditional here — AppProvider is always inside AuthProvider (see main.jsx)
+  const auth = useAuth()
   const supaSession = auth?.session || null
   const supaProfile = auth?.profile || null
   const supaUser = auth?.user || null

@@ -34,7 +34,6 @@ export const SignupPage = () => {
   const handleSignup = async (e) => {
     e.preventDefault()
     setError(''); setInfo('')
-    if (!isSupabaseConfigured) { setError('Supabase not configured.'); return }
     if (!validate()) return
     setLoading(true)
     try {
@@ -50,7 +49,6 @@ export const SignupPage = () => {
 
   const handleGoogle = async () => {
     setError(''); setInfo('')
-    if (!isSupabaseConfigured) { setError('Supabase not configured. Check env.'); return }
     if (phone.trim() && !isValidIndianMobile(phone)) { setError('If provided, phone must be valid 10-digit Indian number.'); return }
     setGoogleLoading(true)
     try {
