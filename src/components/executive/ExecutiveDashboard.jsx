@@ -37,8 +37,9 @@ export const ExecutiveDashboard = () => {
                 <img src={b.providerAvatar} alt={b.providerName} className="w-14 h-14 rounded-xl object-cover" />
                 <div>
                   <div className="flex gap-2 items-center"><span className="px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 text-[10px] font-bold">#{b.bookingCode}</span><span className="text-sm font-bold">{b.serviceName}</span></div>
-                  <div className="text-xs text-slate-500">Customer: {b.customerName} — {b.scheduledDate} {b.scheduledTime}</div>
+                  <div className="text-xs text-slate-500">Customer: {b.customerName} {b.customerPhone ? <a href={`tel:+91${b.customerPhone}`} className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-coop-50 text-coop-700 border border-coop-200 font-bold"><Phone className="w-3 h-3" />+91 {b.customerPhone}</a> : <span className="text-amber-600 ml-1">(no phone)</span>} — {b.scheduledDate} {b.scheduledTime}</div>
                   <div className="text-[11px] text-slate-400">Address: {b.address}</div>
+                  {b.customerPhone && <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1"><Mail className="w-3 h-3" /> Contact via phone for arrival confirmation</div>}
                 </div>
               </div>
               <button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">View Details (OTP verified)</button>

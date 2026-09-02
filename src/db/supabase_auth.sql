@@ -1,16 +1,22 @@
 -- Zolve Supabase Auth + RLS — Corrected (profiles no using(true), bookings inspected from localStorage)
 -- Execute in Supabase Dashboard > SQL Editor
 
--- 1. Profiles table (linked to auth.users)
+-- 1. Profiles table (linked to auth.users) — includes mandatory mobile for executive/customer contact
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null check (char_length(full_name) >= 2),
   email text not null,
+  phone text check (phone is null or phone ~ '^[6-9][0-9]{9}$'),
+  phone_verified boolean default false,
   role text not null check (role in ('customer','provider')) default 'customer',
   avatar_url text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Migration for existing deployments missing phone columns (safe if table already created without phone)
+alter table public.profiles add column if not exists phone text check (phone is null or phone ~ '^[6-9][0-9]{9}$');
+alter table public.profiles add column if not exists phone_verified boolean default false;
 
 alter table public.profiles enable row level security;
 
@@ -39,14 +45,16 @@ create policy "Users can update own profile"
 create or replace view public.public_providers as
   select id, full_name, avatar_url, role, created_at from public.profiles where role = 'provider';
 
--- Handle new user: auto-create profile from auth.users meta
+-- Handle new user: auto-create profile from auth.users meta (includes phone for executive contact)
 create or replace function public.handle_new_user() returns trigger as $$
 begin
-  insert into public.profiles (id, full_name, email, role)
+  insert into public.profiles (id, full_name, email, phone, phone_verified, role)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', 'User'),
     new.email,
+    nullif(new.raw_user_meta_data->>'phone',''),
+    case when nullif(new.raw_user_meta_data->>'phone','') is not null then false else false end,
     case when coalesce(new.raw_user_meta_data->>'role','customer') in ('customer','provider')
          then new.raw_user_meta_data->>'role' else 'customer' end
   );

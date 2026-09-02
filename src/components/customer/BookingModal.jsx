@@ -16,11 +16,69 @@ import {
   Lock,
   ChevronRight,
   Info,
-  Wallet
+  Wallet,
+  Phone
 } from 'lucide-react';
 import { createRazorpayOrder, verifyRazorpayPayment } from '../../services/razorpayService';
 import { getCurrentPosition, reverseGeocode, searchPlaces, searchByPincode, isValidIndianPincode } from '../../services/locationService';
+import { isValidIndianMobile, normalizePhone } from '../../services/otpService';
+import { useAuth } from '../../context/AuthContext';
 import MapView from '../common/MapView';
+
+// ========== IST REAL-TIME DATE / SLOT HELPERS ==========
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // Asia/Kolkata UTC+5:30
+const SLOT_DEFINITIONS = [
+  '09:00 AM - 10:30 AM',
+  '10:30 AM - 11:30 AM',
+  '02:00 PM - 03:30 PM',
+  '04:30 PM - 06:00 PM',
+  '06:30 PM - 08:00 PM',
+];
+
+function getISTDateStr(d = new Date()) {
+  // en-CA in Asia/Kolkata gives YYYY-MM-DD reliably
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+function addDaysIST(dateStr, days) {
+  const [y, m, day] = dateStr.split('-').map(Number);
+  // Build a UTC date that represents IST noon, add days, then re-format as IST
+  // Safer: parse as IST date -> UTC millis then add
+  const utcForISTNoon = Date.UTC(y, m - 1, day, 12, 0, 0) - IST_OFFSET_MS; // actually noon IST as UTC
+  const targetUTC = utcForISTNoon + days * 24 * 60 * 60 * 1000;
+  return getISTDateStr(new Date(targetUTC));
+}
+function getWeekdayIST(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utcNoonUTC = Date.UTC(y, m - 1, d, 12, 0, 0) - IST_OFFSET_MS;
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'long' }).format(new Date(utcNoonUTC));
+}
+function parseSlotStart(slot) {
+  // slot = "09:00 AM - 10:30 AM" -> "09:00 AM"
+  const start = slot.split('-')[0].trim();
+  const match = start.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) return null;
+  let h = parseInt(match[1], 10);
+  const min = parseInt(match[2], 10);
+  const ap = match[3].toUpperCase();
+  if (ap === 'AM') { if (h === 12) h = 0; } else { if (h !== 12) h += 12; }
+  return { h, min };
+}
+function getISTSlotStartUTC(dateStr, slot) {
+  const p = parseSlotStart(slot);
+  if (!p) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  // slot start in IST wall time -> UTC millis
+  return Date.UTC(y, m - 1, d, p.h, p.min, 0) - IST_OFFSET_MS;
+}
+function isSlotEligible(dateStr, slot, nowMs) {
+  if (!dateStr || !slot) return false;
+  const todayIST = getISTDateStr(new Date(nowMs));
+  // Future dates (Tomorrow, day after) are always >2h ahead
+  if (dateStr !== todayIST) return true;
+  const slotUTC = getISTSlotStartUTC(dateStr, slot);
+  if (slotUTC == null) return false;
+  return slotUTC >= nowMs + 2 * 60 * 60 * 1000;
+}
 
 export const BookingModal = () => {
   const {
@@ -36,8 +94,9 @@ export const BookingModal = () => {
     bookingPrefill,
     setBookingPrefill
   } = useApp();
+  const { updatePhone } = useAuth();
 
-  const [step, setStep] = useState(1); // 1: Details & AI -> 2: Date & Slot -> 3: Address -> 4: Price Summary & Pay -> 5: Razorpay Simulator Modal
+  const [step, setStep] = useState(1); // 1: Details & AI -> 2: Date & Slot -> 3: Address -> 4: Contact Mobile -> 5: Price Summary & Pay
 
   const p = selectedProviderForBooking;
 
@@ -104,7 +163,15 @@ export const BookingModal = () => {
   useEffect(() => {
     if (!selectedProviderForBooking) hasAutoLocatedRef.current = false;
   }, [selectedProviderForBooking]);
-  const [selectedDate, setSelectedDate] = useState('2026-08-27');
+  // IST real-time tick — refresh every 60s so 2-hour rule stays live while modal open
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!selectedProviderForBooking) return;
+    const id = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, [selectedProviderForBooking]);
+
+  const [selectedDate, setSelectedDate] = useState(() => getISTDateStr());
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
   const [selectedAddress, setSelectedAddress] = useState(
     currentUser?.savedAddresses?.[0]?.addressLine || 'Flat 402, Sunshine Heights, 12th Main, Indiranagar, Bengaluru - 560038'
@@ -147,6 +214,27 @@ export const BookingModal = () => {
   const grossTotal = baseServicePrice + platformFee + coopReserveFee + gstTax;
   const providerEarnings = baseServicePrice;
 
+  // Mobile contact — mandatory for executive contact during service
+  const [bookingPhone, setBookingPhone] = useState('');
+  const [bookingPhoneError, setBookingPhoneError] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+  // sync from profile when available
+  useEffect(() => {
+    if (currentUser?.phone) setBookingPhone(normalizePhone(currentUser.phone));
+    else setBookingPhone('');
+  }, [currentUser?.phone, selectedProviderForBooking]);
+
+  // Reset dates/times to real IST whenever booking modal opens (or provider changes)
+  useEffect(() => {
+    if (!selectedProviderForBooking) return;
+    const today = getISTDateStr();
+    setSelectedDate(today);
+    // Pick first slot that satisfies 2-hour rule for today, otherwise leave tomorrow default
+    const firstEligible = SLOT_DEFINITIONS.find(s => isSlotEligible(today, s, Date.now()));
+    setSelectedTimeSlot(firstEligible || SLOT_DEFINITIONS[2] || SLOT_DEFINITIONS[0]);
+    setNowMs(Date.now());
+  }, [selectedProviderForBooking]);
+
   // Zolve Money redemption state
   const [useZolveMoney, setUseZolveMoney] = useState(false);
   const [zolveMoneyInput, setZolveMoneyInput] = useState('');
@@ -164,12 +252,45 @@ export const BookingModal = () => {
 
   if (!selectedProviderForBooking) return null;
 
+  // Step 4 -> 5: validate and persist mobile before billing
+  const handlePhoneStepContinue = async () => {
+    const effectivePhone = bookingPhone.trim()
+    if (!isValidIndianMobile(effectivePhone)) {
+      setBookingPhoneError('Enter valid 10-digit mobile — executive will contact you on this')
+      return
+    }
+    // Persist to profile if new or missing, so executive/provider has it for all bookings
+    if (!currentUser?.phone || normalizePhone(currentUser.phone) !== normalizePhone(effectivePhone)) {
+      try {
+        setIsSavingPhone(true)
+        setBookingPhoneError('')
+        await updatePhone(effectivePhone)
+        setBookingPhone(normalizePhone(effectivePhone))
+      } catch (e) {
+        setBookingPhoneError(e.message || 'Failed to save phone')
+        setIsSavingPhone(false)
+        return
+      }
+      setIsSavingPhone(false)
+    } else {
+      setBookingPhoneError('')
+    }
+    setStep(5)
+  }
+
   // Next / Back handlers
   const handleProceedToPayment = async () => {
     if (!currentUser) {
       setAuthModalTab('signin');
       setIsAuthModalOpen(true);
       return;
+    }
+    // Final guard: phone must still be valid (covers direct pay without step 4)
+    const effectivePhone = bookingPhone.trim() || currentUser?.phone || ''
+    if (!isValidIndianMobile(effectivePhone)) {
+      setBookingPhoneError('Enter valid 10-digit mobile — executive will contact you on this during service')
+      setStep(4)
+      return
     }
 
     setIsProcessingPayment(true);
@@ -194,6 +315,13 @@ export const BookingModal = () => {
   };
 
   const handleSimulateRazorpaySuccess = async () => {
+    // Final guard: ensure phone still valid at pay time
+    const effectivePhoneAtPay = bookingPhone.trim() || currentUser?.phone || ''
+    if (!isValidIndianMobile(effectivePhoneAtPay)) {
+      setBookingPhoneError('Mobile required to complete booking — executive needs it to reach you')
+      setIsProcessingPayment(false)
+      return
+    }
     setIsProcessingPayment(true);
 
     const mockPaymentId = `pay_${Math.random().toString(36).substring(2, 11).toUpperCase()}_Live`;
@@ -214,6 +342,7 @@ export const BookingModal = () => {
         redeemZolveMoney(requestedRedeem, 'pending');
       }
       // Step 3: Create confirmed booking in application state (Supabase is source of truth)
+      const effectivePhoneForBooking = normalizePhone(bookingPhone || currentUser?.phone || '')
       const finalBooking = await createBooking({
         providerId: p.id,
         providerName: p.name,
@@ -223,6 +352,7 @@ export const BookingModal = () => {
         isCoopMember: p.isCoopMember,
         providerCoords: p.coords || { lat: 12.9716, lng: 77.5946 },
         customerCoords: addressCoords,
+        customerPhone: effectivePhoneForBooking,
         serviceId: bookingPrefill?.serviceId || 'srv-user-selected',
         serviceName: bookingPrefill?.serviceName || p.title,
         bookingImages: bookingPrefill?.images || [],
@@ -264,7 +394,7 @@ export const BookingModal = () => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded-full bg-brand-100 text-brand-800 text-[10px] font-bold">
-                  Step {step} of 4
+                  Step {step} of 5
                 </span>
                 <h3 className="text-base font-bold text-slate-900 font-display">
                   Book {p.name}
@@ -287,7 +417,7 @@ export const BookingModal = () => {
           <div className="w-full bg-slate-100 h-1">
             <div
               className="bg-coop-600 h-1 transition-all duration-300"
-              style={{ width: `${(step / 4) * 100}%` }}
+              style={{ width: `${(step / 5) * 100}%` }}
             ></div>
           </div>
 
@@ -356,26 +486,34 @@ export const BookingModal = () => {
               </div>
             )}
 
-            {/* STEP 2: DATE & TIME SLOT */}
-            {step === 2 && (
+            {/* STEP 2: DATE & TIME SLOT — REAL IST + 2-HOUR RULE */}
+            {step === 2 && (() => {
+              const todayIST = getISTDateStr(new Date(nowMs));
+              const tomorrowIST = addDaysIST(todayIST, 1);
+              const dayAfterIST = addDaysIST(todayIST, 2);
+              const dayAfterLabel = getWeekdayIST(dayAfterIST);
+              const dateOptions = [
+                { label: 'Today', date: todayIST },
+                { label: 'Tomorrow', date: tomorrowIST },
+                { label: dayAfterLabel, date: dayAfterIST },
+              ];
+              const isToday = selectedDate === todayIST;
+              const todayHasEligible = SLOT_DEFINITIONS.some(s => isSlotEligible(todayIST, s, nowMs));
+              return (
               <div className="space-y-4 animate-in fade-in">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 font-display">
                     2. Select Preferred Date & Arrival Slot
                   </h4>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Provider availability: {p.availability}
+                    Provider availability: {p.availability} • IST: {new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: 'numeric', hour12: true }).format(new Date(nowMs))} (2-hour advance required)
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="block text-xs font-bold text-slate-700">Select Date</label>
                   <div className="grid grid-cols-3 gap-2.5">
-                    {[
-                      { label: 'Today', date: '2026-08-26' },
-                      { label: 'Tomorrow', date: '2026-08-27' },
-                      { label: 'Friday', date: '2026-08-28' }
-                    ].map((d) => (
+                    {dateOptions.map((d) => (
                       <button
                         key={d.date}
                         type="button"
@@ -391,38 +529,44 @@ export const BookingModal = () => {
                       </button>
                     ))}
                   </div>
+                  {isToday && !todayHasEligible && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">No slots left today — all start times are within 2 hours from now. Please choose <strong>Tomorrow</strong> or {dayAfterLabel}.</p>
+                  )}
                 </div>
 
                 <div className="space-y-2 pt-2">
                   <label className="block text-xs font-bold text-slate-700">Arrival Time Window</label>
                   <div className="grid grid-cols-2 gap-2.5">
-                    {[
-                      '09:00 AM - 10:30 AM',
-                      '10:30 AM - 11:30 AM',
-                      '02:00 PM - 03:30 PM',
-                      '04:30 PM - 06:00 PM',
-                      '06:30 PM - 08:00 PM'
-                    ].map((slot) => (
+                    {SLOT_DEFINITIONS.map((slot) => {
+                      const eligible = isSlotEligible(selectedDate, slot, nowMs);
+                      const isSelected = selectedTimeSlot === slot;
+                      return (
                       <button
                         key={slot}
                         type="button"
-                        onClick={() => setSelectedTimeSlot(slot)}
+                        disabled={!eligible}
+                        onClick={() => eligible && setSelectedTimeSlot(slot)}
+                        title={!eligible ? 'Unavailable — starts less than 2 hours from now' : ''}
                         className={`p-3 rounded-xl border text-xs text-left transition-all ${
-                          selectedTimeSlot === slot
+                          !eligible
+                            ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60'
+                            : isSelected
                             ? 'border-coop-600 bg-coop-50 text-coop-900 font-bold'
                             : 'border-slate-200 hover:border-slate-300 text-slate-700'
                         }`}
                       >
                         <div className="flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-coop-600" />
+                          <Clock className={`w-3.5 h-3.5 ${!eligible ? 'text-slate-400' : 'text-coop-600'}`} />
                           <span>{slot}</span>
+                          {!eligible && <span className="ml-auto text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">Unavailable</span>}
                         </div>
                       </button>
-                    ))}
+                    )})}
                   </div>
+                  <p className="text-[10px] text-slate-400">Slots start times are compared as IST timestamps: slot must start ≥ 2 hours after now. Refreshes every 60s.</p>
                 </div>
               </div>
-            )}
+            )})()}
 
             {/* STEP 3: ADDRESS */}
             {step === 3 && (
@@ -583,16 +727,58 @@ export const BookingModal = () => {
               </div>
             )}
 
-            {/* STEP 4: PRICE SUMMARY & CHECKOUT PREVIEW */}
+            {/* STEP 4: CONTACT MOBILE (after location, before billing) */}
             {step === 4 && (
               <div className="space-y-5 animate-in fade-in">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 font-display">
-                    4. Price Breakdown & Transparent Economics
+                    4. Contact Mobile Number
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Executive / provider will call you on this number during the service — required before billing.
+                  </p>
+                </div>
+
+                <div className={`p-5 rounded-2xl border-2 ${!isValidIndianMobile(bookingPhone) ? 'border-amber-300 bg-amber-50/60' : 'border-coop-200 bg-coop-50/40'}`}>
+                  <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Phone className="w-4 h-4 text-brand-700" /> Mobile Number <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-1">10 digits, starts 6-9. This is how the executive reaches you for OTP & arrival.</p>
+                  <div className="mt-3 flex gap-2">
+                    <div className="flex items-center gap-2 flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500">
+                      <span className="text-xs font-bold text-slate-500 shrink-0">+91</span>
+                      <input type="tel" inputMode="numeric" maxLength={10} value={bookingPhone} onChange={e=>{ setBookingPhone(e.target.value.replace(/\D/g,'').slice(0,10)); if(bookingPhoneError) setBookingPhoneError(''); }} placeholder="98765 43210" className="flex-1 outline-none text-sm placeholder:text-slate-400" />
+                    </div>
+                    {currentUser?.phone && normalizePhone(currentUser.phone) === bookingPhone && isValidIndianMobile(bookingPhone) && <span className="self-center text-[11px] font-bold text-coop-700 px-2.5 py-1 rounded-full bg-white border border-coop-200 shrink-0">Saved to profile</span>}
+                  </div>
+                  {bookingPhoneError && <p className="text-xs text-red-600 mt-2 flex items-center gap-1.5"><AlertCircle className="w-4 h-4 shrink-0" />{bookingPhoneError}</p>}
+                  {!bookingPhoneError && !isValidIndianMobile(bookingPhone) && <p className="text-[11px] text-amber-700 mt-2 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> Required: 10 digits, starts 6-9. Booking cannot proceed without it.</p>}
+                  {isValidIndianMobile(bookingPhone) && !bookingPhoneError && <p className="text-[11px] text-coop-700 mt-2 flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Executive will contact you on <strong>+91 {bookingPhone}</strong>. {currentUser?.phone !== bookingPhone && <span className="font-normal text-slate-600">— will be saved to your profile.</span>}</p>}
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-coop-600 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-slate-600"><strong>Privacy:</strong> Number is shared only with assigned executive/provider for this booking and is stored securely in your Zolve profile.</div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5: PRICE SUMMARY & CHECKOUT PREVIEW */}
+            {step === 5 && (
+              <div className="space-y-5 animate-in fade-in">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 font-display">
+                    5. Price Breakdown & Transparent Economics
                   </h4>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Full transparency: Provider receives fair pay without surge deductions.
                   </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-coop-50 border border-coop-200 flex items-center gap-2 text-xs">
+                  <Phone className="w-4 h-4 text-coop-600" />
+                  <span className="text-slate-700">Contact: <strong>+91 {bookingPhone}</strong></span>
+                  <button type="button" onClick={()=>setStep(4)} className="ml-auto text-[11px] font-bold text-brand-700 underline">Change</button>
                 </div>
 
                 {/* Service Card Snapshot */}
@@ -737,13 +923,31 @@ export const BookingModal = () => {
               </button>
             )}
 
-            {step < 4 ? (
+            {step < 4 ? (() => {
+              const needsSlotCheck = step === 2;
+              const slotOk = !needsSlotCheck || isSlotEligible(selectedDate, selectedTimeSlot, nowMs);
+              return (
               <button
                 type="button"
-                onClick={() => setStep(step + 1)}
-                className="px-6 py-2.5 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
+                disabled={needsSlotCheck && !slotOk}
+                onClick={() => {
+                  if (step === 2 && !isSlotEligible(selectedDate, selectedTimeSlot, nowMs)) return;
+                  setStep(step + 1);
+                }}
+                className={`px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5 ${needsSlotCheck && !slotOk ? 'bg-slate-400 cursor-not-allowed' : 'bg-brand-900 hover:bg-brand-800'}`}
+                title={needsSlotCheck && !slotOk ? 'Selected slot starts less than 2 hours from now — choose a later slot or Tomorrow' : ''}
               >
                 <span>Continue</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )})() : step === 4 ? (
+              <button
+                type="button"
+                disabled={isSavingPhone}
+                onClick={handlePhoneStepContinue}
+                className="px-6 py-2.5 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-60"
+              >
+                <span>{isSavingPhone ? 'Saving...' : 'Continue to Billing'}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             ) : (

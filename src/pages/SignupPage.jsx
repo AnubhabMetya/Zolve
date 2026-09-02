@@ -1,13 +1,15 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Mail, Lock, User, Eye, EyeOff, AlertCircle, CheckCircle2, Home, Briefcase } from 'lucide-react'
+import { Mail, Lock, User, Eye, EyeOff, AlertCircle, CheckCircle2, Home, Briefcase, Phone } from 'lucide-react'
+import { isValidIndianMobile, normalizePhone } from '../services/otpService'
 
 export const SignupPage = () => {
   const { signUp, signInWithGoogle, isSupabaseConfigured } = useAuth()
   const navigate = useNavigate()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [role, setRole] = useState('customer')
@@ -21,6 +23,7 @@ export const SignupPage = () => {
     if (!fullName.trim() || !email.trim() || !password || !confirm) { setError('Please fill in all required fields.'); return false }
     if (fullName.trim().length < 2) { setError('Full name must be at least 2 characters.'); return false }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Please enter a valid email address.'); return false }
+    if (phone.trim() && !isValidIndianMobile(phone)) { setError('If provided, phone must be valid 10-digit Indian number (6-9 start).'); return false }
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return false }
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) { setError('Password must include upper, lower and number.'); return false }
     if (password !== confirm) { setError('Passwords do not match.'); return false }
@@ -35,7 +38,7 @@ export const SignupPage = () => {
     if (!validate()) return
     setLoading(true)
     try {
-      await signUp({ fullName: fullName.trim(), email: email.trim(), password, role })
+      await signUp({ fullName: fullName.trim(), email: email.trim(), password, role, phone: phone.trim() ? normalizePhone(phone) : null })
       setInfo('Account created. Please check your email to confirm, then login.')
       setTimeout(()=> navigate('/login', { replace: true }), 1500)
     } catch (err) {
@@ -46,11 +49,15 @@ export const SignupPage = () => {
   }
 
   const handleGoogle = async () => {
-    setError('')
+    setError(''); setInfo('')
+    if (!isSupabaseConfigured) { setError('Supabase not configured. Check env.'); return }
+    if (phone.trim() && !isValidIndianMobile(phone)) { setError('If provided, phone must be valid 10-digit Indian number.'); return }
     setGoogleLoading(true)
     try {
-      // For Google, role is stored in localStorage temporarily and used after OAuth if profile missing
+      // For Google, role and phone are stored temporarily and used after OAuth if profile missing
       localStorage.setItem('zolve_pending_role', role)
+      if (phone.trim()) localStorage.setItem('zolve_pending_phone', normalizePhone(phone))
+      else localStorage.removeItem('zolve_pending_phone')
       await signInWithGoogle()
     } catch (err) { setError(err?.message || 'Google signup failed') } finally { setGoogleLoading(false) }
   }
@@ -89,6 +96,11 @@ export const SignupPage = () => {
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Email</label>
               <div className="relative"><Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" /><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white dark:bg-slate-900" /></div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Mobile Number <span className="font-normal text-[10px] text-slate-500">(optional — you can add at booking if needed)</span></label>
+              <div className="relative"><Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" /><input type="tel" value={phone} onChange={e=>setPhone(e.target.value.replace(/\D/g,'').slice(0,10))} placeholder="98765 43210" inputMode="numeric" maxLength={10} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none bg-white dark:bg-slate-900" /></div>
+              <p className="text-[10px] text-slate-400 mt-1">10 digits, starts 6-9. If skipped, we’ll ask for it during booking (after location, before billing) so executive can reach you.</p>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Password</label>

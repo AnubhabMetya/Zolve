@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import { getVisibleBookings } from '../../services/accessControl';
+import { isValidIndianMobile, normalizePhone } from '../../services/otpService';
 import {
   User,
   Phone,
@@ -14,7 +16,9 @@ import {
   LogOut,
   ShieldCheck,
   Edit2,
-  ChevronRight
+  ChevronRight,
+  AlertCircle,
+  Save
 } from 'lucide-react';
 
 export const ProfilePage = () => {
@@ -30,8 +34,14 @@ export const ProfilePage = () => {
     toggleTheme,
     zolveMoney
   } = useApp();
+  const { updatePhone, profile } = useAuth();
 
   const [activeSection, setActiveSection] = useState('none'); // 'orders' | 'money' | 'help' | 'none'
+  const [isEditingPhone, setIsEditingPhone] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [phoneSuccess, setPhoneSuccess] = useState('');
 
   if (!currentUser) {
     return (
@@ -103,9 +113,26 @@ export const ProfilePage = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
                 <Phone className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mobile Number</div>
-                  <div className="font-semibold text-slate-900 dark:text-white truncate">{currentUser.phone || 'Not set'}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">Mobile Number {!currentUser.phone && <span className="text-red-600">— Required</span>}</div>
+                  {!isEditingPhone ? (
+                    <div className="flex items-center gap-2">
+                      <div className={`font-semibold truncate ${currentUser.phone ? 'text-slate-900 dark:text-white' : 'text-red-600'}`}>{currentUser.phone ? `+91 ${currentUser.phone}` : 'Not set — executive cannot contact you'}</div>
+                      <button onClick={()=>{ setPhoneDraft(currentUser.phone || ''); setIsEditingPhone(true); setPhoneError(''); setPhoneSuccess(''); }} className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 shrink-0"><Edit2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ) : (
+                    <div className="mt-1 space-y-1.5">
+                      <div className="flex gap-1.5">
+                        <input autoFocus value={phoneDraft} onChange={e=>{ setPhoneDraft(e.target.value.replace(/\D/g,'').slice(0,10)); setPhoneError(''); }} placeholder="98765 43210" inputMode="numeric" maxLength={10} className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs" />
+                        <button disabled={phoneSaving} onClick={async()=>{ if(!isValidIndianMobile(phoneDraft)){ setPhoneError('Enter valid 10-digit number starting 6-9'); return; } setPhoneSaving(true); setPhoneError(''); try{ await updatePhone(normalizePhone(phoneDraft)); setPhoneSuccess('Saved'); setIsEditingPhone(false);}catch(err){ setPhoneError(err.message);}finally{ setPhoneSaving(false);} }} className="px-3 py-1.5 rounded-lg bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold disabled:opacity-60 flex items-center gap-1"><Save className="w-3 h-3" />{phoneSaving?'Saving...':'Save'}</button>
+                        <button onClick={()=>setIsEditingPhone(false)} className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs">Cancel</button>
+                      </div>
+                      {phoneError && <div className="text-[11px] text-red-600 flex gap-1"><AlertCircle className="w-3 h-3" />{phoneError}</div>}
+                      {!phoneError && <div className="text-[10px] text-slate-400">10 digits, starts 6-9. Executive will call on this during service.</div>}
+                    </div>
+                  )}
+                  {phoneSuccess && !isEditingPhone && <div className="text-[11px] text-coop-700 font-semibold mt-1">{phoneSuccess}</div>}
+                  {!currentUser.phone && !isEditingPhone && <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-1.5">Add your mobile — booking is blocked until executive can reach you.</div>}
                 </div>
               </div>
               <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">

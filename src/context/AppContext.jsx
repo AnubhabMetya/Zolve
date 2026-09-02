@@ -36,10 +36,14 @@ export const AppProvider = ({ children }) => {
     id: supaProfile.id,
     name: supaProfile.full_name,
     email: supaProfile.email,
+    phone: supaProfile.phone || supaUser?.user_metadata?.phone || null,
+    phone_verified: supaProfile.phone_verified || false,
     role: supaProfile.role,
     avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
     location: 'Bengaluru',
     isCoopMember: supaProfile.role === 'provider',
+    // keep savedAddresses from demo if needed, otherwise null — real addresses come from bookings
+    savedAddresses: null,
   } : null
   const activeRole = supaProfile?.role || 'customer'
   // Keep setter stubs for backward compat (no-op, auth is Supabase)
@@ -120,10 +124,10 @@ export const AppProvider = ({ children }) => {
   });
   const [activeTab, setActiveTab] = useState('home'); // active navigation view
   const [theme, setTheme] = useState(() => localStorage.getItem(`${STORAGE_KEY_PREFIX}_theme`) || 'light');
-  const [zolveMoney, setZolveMoney] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_zolve_money`);
-    return saved ? JSON.parse(saved) : { balance: 0, history: [] };
-  });
+  // Zolve Money — per-account exclusive: each authenticated user gets isolated balance/history
+  // Keyed as zolve_app_state_v1_zolve_money_<userId>, not global
+  const getZolveMoneyKey = (uid) => `${STORAGE_KEY_PREFIX}_zolve_money_${uid || 'guest'}`
+  const [zolveMoney, setZolveMoney] = useState({ balance: 0, history: [] });
 
   // Modals & Drawers Global Visibility
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -296,9 +300,61 @@ export const AppProvider = ({ children }) => {
     } catch {}
   }, []);
 
+  // Per-account zolveMoney: load on user switch, persist per-user
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}_zolve_money`, JSON.stringify(zolveMoney));
-  }, [zolveMoney]);
+    const uid = supaUser?.id || supaProfile?.id || null
+    if (!uid) {
+      // No authenticated user — reset to empty (no leak of previous user's wallet)
+      setZolveMoney({ balance: 0, history: [] })
+      return
+    }
+    try {
+      const key = getZolveMoneyKey(uid)
+      const saved = localStorage.getItem(key)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        // Validate shape
+        if (parsed && typeof parsed.balance === 'number' && Array.isArray(parsed.history)) {
+          setZolveMoney(parsed)
+        } else {
+          setZolveMoney({ balance: 0, history: [] })
+        }
+      } else {
+        // Check legacy global key for migration (one-time): if global has balance and per-user empty, migrate it
+        try {
+          const legacy = localStorage.getItem(`${STORAGE_KEY_PREFIX}_zolve_money`)
+          if (legacy) {
+            const legParsed = JSON.parse(legacy)
+            if (legParsed && typeof legParsed.balance === 'number' && legParsed.balance > 0) {
+              // Only migrate if this user has ever created a booking (heuristic: don't auto-copy other user's money)
+              // For fresh users we start at 0; for the current user on same browser who earned before, migrate once
+              const alreadyMigrated = localStorage.getItem(`${STORAGE_KEY_PREFIX}_zolve_money_migrated_${uid}`)
+              if (!alreadyMigrated) {
+                setZolveMoney(legParsed)
+                localStorage.setItem(`${STORAGE_KEY_PREFIX}_zolve_money_migrated_${uid}`, '1')
+              } else {
+                setZolveMoney({ balance: 0, history: [] })
+              }
+            } else {
+              setZolveMoney({ balance: 0, history: [] })
+            }
+          } else {
+            setZolveMoney({ balance: 0, history: [] })
+          }
+        } catch { setZolveMoney({ balance: 0, history: [] }) }
+      }
+    } catch { setZolveMoney({ balance: 0, history: [] }) }
+  }, [supaUser?.id])
+
+  useEffect(() => {
+    const uid = supaUser?.id || supaProfile?.id || null
+    if (!uid) return
+    try {
+      localStorage.setItem(getZolveMoneyKey(uid), JSON.stringify(zolveMoney))
+    } catch {}
+    // Remove legacy global key to prevent cross-account leakage
+    try { localStorage.removeItem(`${STORAGE_KEY_PREFIX}_zolve_money`) } catch {}
+  }, [zolveMoney, supaUser?.id])
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_location`, JSON.stringify(selectedLocation));

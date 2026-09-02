@@ -81,12 +81,12 @@ export const Navbar = () => {
   return (
     <>
       {/* Spacer to prevent content hidden behind fixed header */}
-      <div className="h-20" aria-hidden="true" />
+      <div className="min-h-[5rem] h-20" aria-hidden="true" />
       <header
         className="fixed top-0 left-0 right-0 z-50 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-sm"
       >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+        <div className="flex items-center justify-between min-h-[5rem] py-2">
           {/* Brand Logo & Tagline */}
           <div className="flex items-center gap-6">
             <button
@@ -297,7 +297,7 @@ export const Navbar = () => {
           </nav>
 
           {/* Right Action Icons & Auth Controls */}
-          <div className="flex items-center shrink-0 gap-2.5 sm:gap-3">
+          <div className="flex items-center shrink-0 gap-1.5 sm:gap-2 flex-nowrap min-w-0">
             {/* Dark Mode Toggle — visible on all pages including landing */}
             <button
               onClick={toggleTheme}
@@ -309,10 +309,10 @@ export const Navbar = () => {
             {/* AI Assistant Copilot Trigger */}
             <button
               onClick={() => setIsCopilotOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-indigo-600 text-white text-xs font-semibold shadow-sm hover:shadow-md hover:scale-105 transition-all"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-full bg-gradient-to-r from-brand-600 to-indigo-600 text-white text-[11px] sm:text-xs font-semibold shadow-sm hover:shadow-md hover:scale-105 transition-all shrink-0"
               title="Open Zolve AI Assistant"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-300 animate-pulse" />
               <span className="hidden sm:inline">AI Copilot</span>
             </button>
 
@@ -489,22 +489,24 @@ export const Navbar = () => {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => navigate('/login')}
-                  className="px-3.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-colors whitespace-nowrap"
-                >
-                  Login
-                </button>
-                <button
-                  onClick={() => navigate('/signup')}
-                  className="px-3.5 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap text-center"
-                >
-                  Sign Up
-                </button>
+              <div className="flex flex-col gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    onClick={() => navigate('/login')}
+                    className="flex-1 sm:flex-none px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-[11px] sm:text-xs font-bold transition-colors whitespace-nowrap text-center"
+                  >
+                    Login
+                  </button>
+                  <button
+                    onClick={() => navigate('/signup')}
+                    className="flex-1 sm:flex-none px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white text-[11px] sm:text-xs font-bold shadow-sm transition-colors whitespace-nowrap text-center"
+                  >
+                    Sign Up
+                  </button>
+                </div>
                 <button
                   onClick={() => { setIsLocationModalOpen(false); navigate('/'); setTimeout(()=> setActiveTab('join-executive'), 0) }}
-                  className="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-white border-2 border-black text-black hover:bg-zinc-50 text-xs font-bold whitespace-nowrap"
+                  className="w-full inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-white border-2 border-black text-black hover:bg-zinc-50 text-[11px] sm:text-xs font-bold whitespace-nowrap"
                 >
                   Join as Executive
                 </button>
@@ -566,6 +568,7 @@ export const Navbar = () => {
             <div className="space-y-2 pt-2 border-t border-slate-100">
               <button onClick={() => { navigate('/login'); setIsMobileMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm font-bold text-slate-800 rounded-lg bg-slate-50">Login</button>
               <button onClick={() => { navigate('/signup'); setIsMobileMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm font-bold text-white rounded-lg bg-black">Sign Up</button>
+              <button onClick={() => { setIsMobileMenuOpen(false); setIsLocationModalOpen(false); navigate('/'); setTimeout(()=> setActiveTab('join-executive'), 0) }} className="w-full text-left px-3 py-2 text-sm font-bold text-black rounded-lg bg-white border-2 border-black">Join as Executive</button>
             </div>
           )}
         </div>

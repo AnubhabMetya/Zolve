@@ -1,22 +1,10 @@
 // ====================================================================
 // ZOLVE REALTIME SERVICE — Supabase Broadcast + Local Mock Fallback
 // If VITE_SUPABASE_URL missing, falls back to BroadcastChannel + localStorage
+// IMPORTANT: Reuse the singleton supabase client from lib/supabaseClient.js
+// so PKCE verifier (sb-*-code-verifier) is not overwritten by a second GoTrueClient.
 // ====================================================================
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-let supabase = null;
-if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      realtime: { params: { eventsPerSecond: 10 } },
-    });
-  } catch {
-    supabase = null;
-  }
-}
+import { supabase } from '../lib/supabaseClient.js';
 
 export function isRealtimeEnabled() {
   return !!supabase;
