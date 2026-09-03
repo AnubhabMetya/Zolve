@@ -32,6 +32,122 @@ export const AppProvider = ({ children }) => {
   const supaSession = auth?.session || null
   const supaProfile = auth?.profile || null
   const supaUser = auth?.user || null
+  // --- Saved Addresses — per-user, Swiggy/Zomato style ---
+  const getAddressesKey = (uid) => `${STORAGE_KEY_PREFIX}_addresses_${uid || 'guest'}`
+  const buildFullAddress = (a) => {
+    const parts = [a.houseFlat, a.apartment, a.streetArea, a.landmark, a.city, a.state, a.pincode ? `${a.state ? '' : ''}- ${a.pincode}`.replace('- ','') : ''].filter(Boolean)
+    // fallback: if only raw fullAddress exists
+    if (!parts.length && a.fullAddress) return a.fullAddress
+    if (!parts.length && a.addressLine) return a.addressLine
+    // construct clean: "Flat, Apartment, Street, Landmark, City, State - Pincode"
+    const line = [a.houseFlat, a.apartment, a.streetArea].filter(Boolean).join(', ')
+    const cityLine = [a.city, a.state].filter(Boolean).join(', ')
+    const pin = a.pincode ? ` - ${a.pincode}` : ''
+    const landmarkSeg = a.landmark ? `, ${a.landmark}` : ''
+    if (line && cityLine) return `${line}${landmarkSeg}, ${cityLine}${pin}`
+    if (line) return `${line}${landmarkSeg}${cityLine ? `, ${cityLine}` : ''}${pin}`
+    return a.fullAddress || a.addressLine || ''
+  }
+  const normalizeAddress = (raw) => {
+    const fa = buildFullAddress(raw)
+    return {
+      id: raw.id || `addr-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+      label: raw.label || (raw.type === 'home' ? 'Home' : raw.type === 'work' ? 'Work' : raw.label || 'Other'),
+      type: raw.type || (String(raw.label||'').toLowerCase()==='home'?'home': String(raw.label||'').toLowerCase()==='work'?'work':'other'),
+      houseFlat: raw.houseFlat || '',
+      apartment: raw.apartment || '',
+      streetArea: raw.streetArea || '',
+      landmark: raw.landmark || '',
+      city: raw.city || '',
+      state: raw.state || '',
+      pincode: raw.pincode ? String(raw.pincode) : '',
+      fullAddress: fa,
+      addressLine: fa,
+      coords: raw.coords || null,
+      isDefault: !!raw.isDefault,
+      createdAt: raw.createdAt || new Date().toISOString(),
+    }
+  }
+  const [savedAddresses, setSavedAddresses] = useState(() => {
+    try {
+      const keys = Object.keys(localStorage).filter(k=>k.startsWith(`${STORAGE_KEY_PREFIX}_addresses_`))
+      const guest = localStorage.getItem(getAddressesKey('guest'))
+      if (guest) { const p=JSON.parse(guest); if(Array.isArray(p) && p.length>0) return p.map(normalizeAddress) }
+      for (const k of keys) { try{ const v=JSON.parse(localStorage.getItem(k)); if(Array.isArray(v)&&v.length>0) return v.map(normalizeAddress)}catch{} }
+      return DEMO_USERS.customer.savedAddresses.map(a=> normalizeAddress({ id: a.id, label: a.label, type: a.label.toLowerCase(), houseFlat: a.addressLine.split(',')[0], apartment: a.addressLine.split(',')[1]?.trim()||'', streetArea: a.addressLine.split(',').slice(2).join(',').trim(), landmark: a.landmark, city: 'Bengaluru', state: 'Karnataka', pincode: (a.addressLine.match(/(\d{6})/)||[])[1]||'', isDefault: a.isDefault, coords: a.id==='addr-1'?{lat:12.9784,lng:77.6408}:{lat:12.9259,lng:77.6271}, fullAddress: a.addressLine }))
+    } catch { return DEMO_USERS.customer.savedAddresses.map(a=> normalizeAddress({ id: a.id, label: a.label, type: a.label.toLowerCase(), houseFlat: a.addressLine.split(',')[0], apartment: a.addressLine.split(',')[1]?.trim()||'', streetArea: a.addressLine.split(',').slice(2).join(',').trim(), landmark: a.landmark, city: 'Bengaluru', state: 'Karnataka', pincode: (a.addressLine.match(/(\d{6})/)||[])[1]||'', isDefault: a.isDefault, coords: a.id==='addr-1'?{lat:12.9784,lng:77.6408}:{lat:12.9259,lng:77.6271}, fullAddress: a.addressLine })) }
+  })
+
+  // Load per-user addresses when auth changes
+  useEffect(() => {
+    const uid = supaUser?.id || supaProfile?.id || null
+    if (!uid) return
+    try {
+      const raw = localStorage.getItem(getAddressesKey(uid))
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.length>0) { setSavedAddresses(parsed.map(normalizeAddress)); return }
+        if (Array.isArray(parsed) && parsed.length===0) { /* ignore empty — reseed below */ }
+      }
+      const guestRaw = localStorage.getItem(getAddressesKey('guest'))
+      if (guestRaw) {
+        try { const g=JSON.parse(guestRaw); if(Array.isArray(g)&&g.length>0) { const norm=g.map(normalizeAddress); setSavedAddresses(norm); localStorage.setItem(getAddressesKey(uid), JSON.stringify(norm)); return } } catch {}
+      }
+      // if Supabase profile has saved_addresses column, try fetch (silent fallback)
+      if (isSupabaseConfigured() && supaProfile) {
+        // best-effort: if column exists, it will be in supaProfile; supabase fetchProfile already selected *
+        const remote = supaProfile.saved_addresses || supaProfile.savedAddresses
+        if (Array.isArray(remote) && remote.length) { setSavedAddresses(remote.map(normalizeAddress)); return }
+      }
+      // keep existing state (demo seed) if nothing found — persist it for this user
+      setSavedAddresses(prev => {
+        if (prev.length) { try{ localStorage.setItem(getAddressesKey(uid), JSON.stringify(prev)) }catch{} }
+        return prev
+      })
+    } catch {}
+  }, [supaUser?.id])
+
+  // Persist per-user on change
+  useEffect(() => {
+    const uid = supaUser?.id || supaProfile?.id || 'guest'
+    try { localStorage.setItem(getAddressesKey(uid), JSON.stringify(savedAddresses)) } catch {}
+    // best-effort Supabase sync (if column exists, ignore error if not)
+    if (uid !== 'guest' && isSupabaseConfigured() && supaProfile && savedAddresses.length>=0) {
+      try { supabase.from('profiles').update({ saved_addresses: savedAddresses }).eq('id', uid).then(()=>{}).catch(()=>{}) } catch {}
+    }
+  }, [savedAddresses, supaUser?.id])
+
+  const addAddress = (addr) => {
+    const normalized = normalizeAddress({ ...addr, isDefault: savedAddresses.length===0 ? true : !!addr.isDefault })
+    setSavedAddresses(prev => {
+      // if new isDefault, unset others
+      const updated = normalized.isDefault ? prev.map(a=>({ ...a, isDefault:false })) : prev
+      return [...updated, normalized]
+    })
+    return normalized
+  }
+  const updateAddress = (id, patch) => {
+    setSavedAddresses(prev => prev.map(a => {
+      if (a.id !== id) return patch.isDefault ? { ...a, isDefault:false } : a
+      const merged = normalizeAddress({ ...a, ...patch, id })
+      // ensure fullAddress recomputed from parts
+      merged.fullAddress = buildFullAddress(merged)
+      merged.addressLine = merged.fullAddress
+      return merged
+    }))
+  }
+  const deleteAddress = (id) => {
+    setSavedAddresses(prev => {
+      const filtered = prev.filter(a=>a.id!==id)
+      // if deleted was default, make first remaining default
+      if (prev.find(a=>a.id===id)?.isDefault && filtered.length) filtered[0].isDefault = true
+      return filtered
+    })
+  }
+  const setDefaultAddress = (id) => {
+    setSavedAddresses(prev => prev.map(a=> ({ ...a, isDefault: a.id===id })))
+  }
+
   const currentUser = supaProfile ? {
     id: supaProfile.id,
     name: supaProfile.full_name,
@@ -40,10 +156,9 @@ export const AppProvider = ({ children }) => {
     phone_verified: supaProfile.phone_verified || false,
     role: supaProfile.role,
     avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
-    location: 'Bengaluru',
+    location: savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || 'Bengaluru',
     isCoopMember: supaProfile.role === 'provider',
-    // keep savedAddresses from demo if needed, otherwise null — real addresses come from bookings
-    savedAddresses: null,
+    savedAddresses,
   } : null
   const activeRole = supaProfile?.role || 'customer'
   // Keep setter stubs for backward compat (no-op, auth is Supabase)
@@ -979,6 +1094,14 @@ export const AppProvider = ({ children }) => {
         providerLiveLocations,
         setProviderLiveLocations,
         updateProviderLiveLocation,
+        // --- Saved Addresses (Swiggy/Zomato style) ---
+        savedAddresses,
+        setSavedAddresses,
+        addAddress,
+        updateAddress,
+        deleteAddress,
+        setDefaultAddress,
+        buildFullAddress,
         activeTab,
         setActiveTab,
         // Modal toggles

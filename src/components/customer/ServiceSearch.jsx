@@ -28,7 +28,8 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     currentUser,
     setIsAuthModalOpen,
     setAuthModalTab,
-    setIsLocationModalOpen
+    setIsLocationModalOpen,
+    savedAddresses
   } = useApp();
 
   const requireAuthOrRedirect = () => {
@@ -42,6 +43,11 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
   const userCoords = typeof selectedLocation === 'string' ? { lat: 12.9784, lng: 77.6408 } : (selectedLocation?.lat ? selectedLocation : { lat: 12.9784, lng: 77.6408 });
   const selectedLocationName = typeof selectedLocation === 'string' ? selectedLocation : (selectedLocation?.name || 'your location');
   const hasExplicitLocation = selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null;
+  // Saved default address coords — strict 50km is enforced against BOTH saved and live location (OR logic: visible if within 50km of either)
+  const defaultSavedCoords = React.useMemo(() => {
+    const def = savedAddresses?.find(a => a.isDefault) || savedAddresses?.[0];
+    return def?.coords || null;
+  }, [savedAddresses]);
 
   const [searchQuery, setSearchQuery] = useState(initialSearch || '');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -63,12 +69,19 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     return 2 * R * Math.asin(Math.sqrt(a));
   };
 
-  // Filtered & Sorted Providers List
+  // Filtered & Sorted Providers List — hide booking details beyond 50km from saved OR live location
   const filteredProviders = useMemo(() => {
     if (!providers || !Array.isArray(providers)) return [];
     if (!userCoords || userCoords.lat == null) return [];
     return providers
-      .map((p) => ({ ...p, _distanceKm: p.coords ? haversineSortKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) : 999 }))
+      .map((p) => {
+        if (!p.coords) return { ...p, _distanceKm: 999, _distanceToSavedKm: 999 };
+        const dLive = haversineSortKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng);
+        const dSaved = defaultSavedCoords ? haversineSortKm(defaultSavedCoords.lat, defaultSavedCoords.lng, p.coords.lat, p.coords.lng) : 999;
+        // Effective distance is the nearest of saved vs live — provider must be within 50km of at least one
+        const eff = Math.min(dLive, dSaved);
+        return { ...p, _distanceKm: eff, _distanceToLiveKm: dLive, _distanceToSavedKm: dSaved };
+      })
       .filter((p) => {
         // Search text matching name, title, skills, categories
         if (searchQuery && searchQuery.trim()) {
@@ -98,7 +111,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
         // Cooperative members only
         if (coopMembersOnly && !p.isCoopMember) return false;
 
-        // 50km executive corporate coverage — automatically adjusts to GPS/pincode
+        // Strict 50km coverage — hide providers beyond 50km from saved/live location. Booking details must not show outside serviceable radius.
         if (p._distanceKm > SERVICE_RADIUS_KM) return false;
 
         return true;
@@ -109,7 +122,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
         if (sortBy === 'price_low') return a.basePrice - b.basePrice;
         if (sortBy === 'experience') return b.experienceYears - a.experienceYears;
         if (sortBy === 'jobs') return b.completedJobs - a.completedJobs;
-        // Recommended default: cooperative members + rating + jobs, but boost nearby
+        // Recommended: cooperative members + rating + jobs, boost nearby
         const scoreA = (a.isCoopMember ? 2 : 0) + a.rating - Math.min(a._distanceKm / 10, 1);
         const scoreB = (b.isCoopMember ? 2 : 0) + b.rating - Math.min(b._distanceKm / 10, 1);
         return scoreB - scoreA;

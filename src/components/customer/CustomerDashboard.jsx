@@ -57,7 +57,8 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
     setIsAuthModalOpen,
     setAuthModalTab,
     theme,
-    toggleTheme
+    toggleTheme,
+    savedAddresses
   } = useApp();
 
   const requireAuthOrRedirect = () => {
@@ -76,10 +77,21 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
     return null;
   }, [selectedLocation]);
 
+  const defaultSavedCoords = React.useMemo(() => {
+    const def = savedAddresses?.find(a => a.isDefault) || savedAddresses?.[0];
+    return def?.coords || null;
+  }, [savedAddresses]);
+
   const nearbyProviders = React.useMemo(() => {
-    if (!userCoords) return providers;
-    return providers.filter(p => p.coords && haversineKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) <= SERVICE_RADIUS_KM);
-  }, [providers, userCoords]);
+    if (!userCoords && !defaultSavedCoords) return providers;
+    return providers.filter(p => {
+      if (!p.coords) return false;
+      const dLive = userCoords ? haversineKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) : 999;
+      const dSaved = defaultSavedCoords ? haversineKm(defaultSavedCoords.lat, defaultSavedCoords.lng, p.coords.lat, p.coords.lng) : 999;
+      // Hide booking details beyond 50km from BOTH saved and live — visible if within 50km of either
+      return Math.min(dLive, dSaved) <= SERVICE_RADIUS_KM;
+    });
+  }, [providers, userCoords, defaultSavedCoords]);
 
   const nearbyCoopCount = nearbyProviders.filter(p => p.isCoopMember).length;
   const hasCoverage = nearbyProviders.length > 0;
@@ -103,7 +115,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
   const handleMostBookedBooking = (service) => {
     if (!requireAuthOrRedirect()) return;
     if (!hasCoverage) return;
-    // 2-3 executives per cooperative job per location — pick randomly among nearby matching that service
+    // 2-3 executives per cooperative job per location — pick randomly among nearby 50km matching that service (strict radius)
     const svcNameLower = service.name.toLowerCase();
     let eligible = nearbyProviders.filter(p =>
       p.isCoopMember &&
@@ -115,7 +127,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
        p.serviceCategories?.some(c => c.toLowerCase().includes('apartment maintenance') && svcNameLower.includes('sump')) ||
        p.skills?.some(s => svcNameLower.includes(s.toLowerCase().split(' ')[0])))
     );
-    // Fallback: any nearby coop member that lists any of the 4 most-booked services generically
+    // Fallback: any nearby 50km coop member that lists any of the 4 most-booked services generically
     if (eligible.length < 2) {
       const fallback = nearbyProviders.filter(p => p.isCoopMember);
       eligible = fallback.length ? fallback : nearbyProviders;
@@ -415,7 +427,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
         </motion.section>
       )}
 
-      {/* 2b. LOCATION NOT SERVICEABLE — only show when outside 50km */}
+      {/* 2b. LOCATION NOT SERVICEABLE — strict 50km from saved/live location */}
       {userCoords && !hasCoverage && (
         <div className="rounded-2xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-red-50 border-red-200">
           <div className="flex items-center gap-3">
@@ -427,7 +439,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                 Services not available in this area
               </div>
               <div className="text-xs text-red-700">
-                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'this location'}.`}
+                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'this location'}. Booking details are hidden outside 50km from your saved/live location.`}
               </div>
             </div>
           </div>
@@ -592,7 +604,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
               <MapPin className="w-6 h-6 text-amber-600" />
             </div>
             <h3 className="text-sm font-bold text-amber-900">Services not available in this area</h3>
-            <p className="text-xs text-amber-800 max-w-md mx-auto">No executive within 50 km of {typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name}. Change location or pincode to see services in your area.</p>
+            <p className="text-xs text-amber-800 max-w-md mx-auto">No executive within 50 km of {typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name}. Booking details are hidden outside 50km from your saved/live location. Change location or pincode to see services.</p>
             <button onClick={() => setIsLocationModalOpen(true)} className="mt-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">Change Location / Pincode</button>
           </div>
         ) : (

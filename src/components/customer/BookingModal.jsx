@@ -232,6 +232,39 @@ export const BookingModal = () => {
     setNowMs(Date.now());
   }, [selectedProviderForBooking]);
 
+  // Fix: consecutive bookings were opening directly at billing (step 5) because step was not reset
+  useEffect(() => {
+    if (!selectedProviderForBooking) return;
+    // Always start new booking at step 1
+    setStep(1);
+    hasAutoLocatedRef.current = false;
+    setIsCustomAddress(false);
+    setCustomAddress('');
+    setPinCodeBooking('');
+    setPinBookingError('');
+    setAddrSearchResults([]);
+    setGpsAddrError('');
+    setGpsLoadingAddress(false);
+    setUseZolveMoney(false);
+    setZolveMoneyInput('');
+    setIsProcessingPayment(false);
+    setIsRazorpayModalOpen(false);
+    setBookingPhoneError('');
+    setIsSavingPhone(false);
+    // Reset address to default saved address (so second booking doesn't inherit previous custom address)
+    const def = currentUser?.savedAddresses?.find(a=>a.isDefault) || currentUser?.savedAddresses?.[0];
+    if (def) {
+      setSelectedAddress(def.addressLine || def.fullAddress);
+      if (def.coords) setAddressCoords(def.coords);
+    } else {
+      setSelectedAddress('Flat 402, Sunshine Heights, 12th Main, Indiranagar, Bengaluru - 560038');
+      setAddressCoords({ lat: 12.9784, lng: 77.6408 });
+    }
+    if (!bookingPrefill?.serviceName) {
+      setServiceDescription('Circuit breaker tripping and spark near kitchen switchboard.');
+    }
+  }, [selectedProviderForBooking?.id]);
+
   // Zolve Money redemption state
   const [useZolveMoney, setUseZolveMoney] = useState(false);
   const [zolveMoneyInput, setZolveMoneyInput] = useState('');
