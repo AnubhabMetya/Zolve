@@ -226,11 +226,14 @@ export function emergencyDispatch({
   if (trustHistory && Array.isArray(trustHistory) && trustHistory.length) {
     for (const e of eligible) {
       try {
-        // Need city for peer; use provided city or hub fallback city
-        const trustCity = city || getCityHub(city)?.city || 'Bengaluru';
-        // If city is custom coords, fallback to provider's city? Use city param
-        // For trust evaluation, use the requested city param
-        const evalCity = city || 'Bengaluru';
+        // Need city for peer; use provided city or hub fallback city — never Bengaluru when unknown
+        const trustCity = city || getCityHub(city)?.city || null;
+        const evalCity = city || null;
+        if (!evalCity) {
+          trustMap.set(e.provider.id, 70);
+          trustRiskMap.set(e.provider.id, 'LOW');
+          continue;
+        }
         const tr = evaluateTrust({ providerId: e.provider.id, city: evalCity, serviceId: service_id, trustHistory });
         trustMap.set(e.provider.id, trustSafetyScore(tr));
         trustRiskMap.set(e.provider.id, tr.riskLevel);

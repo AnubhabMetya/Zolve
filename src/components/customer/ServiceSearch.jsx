@@ -26,6 +26,8 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     setSelectedProviderForBooking,
     setSelectedProviderForProfile,
     selectedLocation,
+    locationStatus,
+    locationError,
     currentUser,
     setIsAuthModalOpen,
     setAuthModalTab,
@@ -41,8 +43,8 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     }
     return true;
   };
-  const userCoords = typeof selectedLocation === 'string' ? { lat: 12.9784, lng: 77.6408 } : (selectedLocation?.lat ? selectedLocation : { lat: 12.9784, lng: 77.6408 });
-  const selectedLocationName = typeof selectedLocation === 'string' ? selectedLocation : (selectedLocation?.name || 'your location');
+  const userCoords = (selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null && selectedLocation.lng != null) ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null;
+  const selectedLocationName = (selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.name) ? selectedLocation.name : (selectedLocation?.city || 'Location not set');
   const hasExplicitLocation = selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null;
   // Saved default address coords — strict 50km is enforced against BOTH saved and live location (OR logic: visible if within 50km of either)
   const defaultSavedCoords = React.useMemo(() => {
@@ -181,6 +183,40 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
           </div>
         </div>
       </div>
+
+      {/* Location status — never Bengaluru */}
+      {locationStatus === 'detecting' && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 flex items-center justify-between gap-3 text-xs text-blue-800">
+          <span className="flex items-center gap-2"><Clock className="w-4 h-4 animate-spin" /> Detecting your location…</span>
+          <span className="text-[11px] text-blue-600">GPS — one-time</span>
+        </div>
+      )}
+      {locationStatus === 'denied' && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 flex items-center justify-between gap-3 text-xs text-red-800">
+          <span>Location access was denied.</span>
+          <button onClick={() => setIsLocationModalOpen(true)} className="px-3 py-1.5 rounded-full bg-white border border-red-200 font-bold">Choose location manually</button>
+        </div>
+      )}
+      {locationStatus === 'unavailable' && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 flex items-center justify-between gap-3 text-xs text-amber-800">
+          <span>Unable to detect your location.</span>
+          <button onClick={() => setIsLocationModalOpen(true)} className="px-3 py-1.5 rounded-full bg-white border font-bold">Choose location manually</button>
+        </div>
+      )}
+      {locationStatus === 'unsupported' && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          Zolve is currently not available in this area. {selectedLocation?.lat != null && <span className="font-mono">({selectedLocation.lat.toFixed(3)}, {selectedLocation.lng.toFixed(3)})</span>} — Choose a supported city.
+          <button onClick={() => setIsLocationModalOpen(true)} className="ml-2 px-3 py-1 rounded-full bg-white border font-bold">Choose location</button>
+        </div>
+      )}
+      {!hasExplicitLocation && locationStatus !== 'detecting' && locationStatus !== 'unsupported' && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-center space-y-2">
+          <p className="text-sm font-bold text-slate-700">Location not set</p>
+          <p className="text-xs text-slate-500">Choose your location to find nearby providers within 50km. Services are city-specific.</p>
+          <button onClick={() => setIsLocationModalOpen(true)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Choose location manually</button>
+          {locationError && <p className="text-[11px] text-slate-400">{locationError}</p>}
+        </div>
+      )}
 
       {/* FEATURE 1 — SEMANTIC SERVICE MATCHING (client-side TF-IDF, no API key, embeddings precomputed) */}
       <SemanticServiceMatcher onSelectServiceName={(name) => setSearchQuery(name)} />

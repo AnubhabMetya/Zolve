@@ -27,6 +27,8 @@ import {
 export const Navbar = () => {
   const {
     selectedLocation,
+    locationStatus,
+    locationError,
     setIsLocationModalOpen,
     setIsCopilotOpen,
     notifications,
@@ -112,13 +114,20 @@ export const Navbar = () => {
               </div>
             </button>
 
-            {/* Location Selector (Customer & Public View) */}
+            {/* Location Selector (Customer & Public View) — never Bengaluru when unknown */}
             <button
               onClick={() => setIsLocationModalOpen(true)}
               className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/90 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold transition-colors border border-slate-200/60 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 mr-2"
+              title={locationError || selectedLocation?.name || 'Location not set'}
             >
               <MapPin className="w-3.5 h-3.5 text-coop-600" />
-              <span className="max-w-[140px] truncate">{typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'Select location'}</span>
+              <span className="max-w-[160px] truncate">
+                {locationStatus === 'detecting' ? 'Detecting your location…' :
+                 locationStatus === 'denied' ? 'Location access was denied.' :
+                 locationStatus === 'unavailable' ? 'Unable to detect location' :
+                 locationStatus === 'unsupported' ? 'Zolve not available in this area' :
+                 (typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'Location not set')}
+              </span>
               <ChevronDown className="w-3 h-3 text-slate-400" />
             </button>
           </div>

@@ -19,6 +19,11 @@ import {
 } from '../data/mockData';
 import { useAuth } from './AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { ExecutiveApplicationService } from '../services/executiveApplicationService';
+import { SupportTicketService } from '../services/supportTicketService';
+import { SocietyService } from '../services/societyService';
+import { resolveCity } from '../services/cityResolver';
+import { isGeolocationSupported, getCurrentPosition, reverseGeocode } from '../services/locationService';
 
 const AppContext = createContext(null);
 
@@ -156,7 +161,7 @@ export const AppProvider = ({ children }) => {
     phone_verified: supaProfile.phone_verified || false,
     role: supaProfile.role,
     avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
-    location: savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || 'Bengaluru',
+    location: savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || null,
     isCoopMember: supaProfile.role === 'provider',
     savedAddresses,
   } : null
@@ -184,6 +189,10 @@ export const AppProvider = ({ children }) => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_society`);
     return saved ? JSON.parse(saved) : SOCIETY_DATA;
   });
+  const [societies, setSocieties] = useState([]);
+  const [societiesLoading, setSocietiesLoading] = useState(false);
+  const [societyRequests, setSocietyRequests] = useState([]);
+  const [societyRequestsLoading, setSocietyRequestsLoading] = useState(false);
 
   // Earnings derived from bookings (Supabase view), not separate localStorage
   const [earningsLedger, setEarningsLedger] = useState([]);
@@ -192,6 +201,7 @@ export const AppProvider = ({ children }) => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_tickets`);
     return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
+  const [supportTicketsLoading, setSupportTicketsLoading] = useState(false);
 
   const [executiveApplications, setExecutiveApplications] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_exec_apps`);
@@ -230,8 +240,182 @@ export const AppProvider = ({ children }) => {
 
   const [selectedLocation, setSelectedLocation] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_location`);
-    try { return saved ? JSON.parse(saved) : { name: 'Indiranagar, Bengaluru', lat: 12.9784, lng: 77.6408 }; } catch { return { name: 'Indiranagar, Bengaluru', lat: 12.9784, lng: 77.6408 }; }
+    try {
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed) return null;
+        // Legacy string fallback — treat as unknown (do not restore Bengaluru)
+        if (typeof parsed === 'string') {
+          const lower = parsed.toLowerCase();
+          if (lower.includes('bengaluru') || lower.includes('indiranagar')) return null;
+          return { name: parsed, source: 'manual' };
+        }
+        if (parsed && typeof parsed === 'object' && parsed.lat != null && parsed.lng != null) {
+          // Detect legacy hard-coded Bengaluru default (12.9784,77.6408) without source — treat as unknown if it matches exactly and was auto-persisted
+          const isLegacyDefault = parsed.lat === 12.9784 && parsed.lng === 77.6408 && parsed.name?.toLowerCase().includes('bengaluru') && !parsed.source;
+          if (isLegacyDefault) return null;
+          return { ...parsed, source: parsed.source || 'manual' };
+        }
+        if (parsed && parsed.city && parsed.lat == null) return parsed;
+      }
+    } catch {}
+    return null; // unknown — never Bengaluru
   });
+  const [locationStatus, setLocationStatus] = useState(() => {
+    // if we restored a valid location, status is available, else detecting
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_location`);
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p && typeof p === 'object' && p.lat != null) return 'available';
+      }
+    } catch {}
+    return 'detecting';
+  });
+  const [locationError, setLocationError] = useState(null);
+
+  // GPS auto-detection — one controlled initial flow, never Bengaluru fallback
+  React.useEffect(() => {
+    let cancelled = false;
+    // If we already restored a valid location, don't auto-request
+    if (selectedLocation && selectedLocation.lat != null && selectedLocation.lng != null) {
+      setLocationStatus('available');
+      return;
+    }
+    // Only run when status is detecting and no location
+    if (locationStatus !== 'detecting') return;
+    if (!isGeolocationSupported()) {
+      if (!cancelled) {
+        setLocationStatus('unavailable');
+        setLocationError('Geolocation not supported');
+      }
+      return;
+    }
+    getCurrentPosition({ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 })
+      .then(async (pos) => {
+        if (cancelled) return;
+        const { lat, lng, accuracy } = pos;
+        let cityInfo = null;
+        let displayName = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+        let state = null;
+        let pincode = null;
+        try {
+          const rev = await reverseGeocode(lat, lng);
+          displayName = rev.name || displayName;
+          const addr = rev.raw?.address || {};
+          state = addr.state || null;
+          pincode = addr.postcode || null;
+          // Try to derive city from reverse geocode as well, but primary is coords via resolveCity
+          const viaCoords = resolveCity({ lat, lng, pincode, name: rev.name, text: rev.full });
+          cityInfo = viaCoords;
+          if (viaCoords?.city) {
+            // within supported 50km
+            displayName = viaCoords.city; // canonical city for display, but keep full name as alternative
+            // Use hub's city name as canonical, but preserve readable name
+            // We'll set name to rev.name for readability, city field separate
+            displayName = rev.name;
+          } else if (viaCoords && viaCoords.supported === false && viaCoords.city == null) {
+            // outside coverage — keep coords, city null, mark unsupported
+            setLocationStatus('unsupported');
+            setLocationError('Zolve is currently not available in this area.');
+            const loc = { lat, lng, city: null, name: displayName, source: 'gps', pincode, state, accuracy, supported: false, timestamp: Date.now() };
+            setSelectedLocation(loc);
+            return;
+          }
+        } catch {
+          // reverse geocode failed but GPS coords available — keep coords, allow manual city
+          cityInfo = resolveCity({ lat, lng });
+        }
+        const finalCity = cityInfo?.city || null;
+        const supported = cityInfo?.supported !== false;
+        if (finalCity == null && cityInfo && cityInfo.supported === false) {
+          setLocationStatus('unsupported');
+          setLocationError('Zolve is currently not available in this area.');
+        } else {
+          setLocationStatus('available');
+          setLocationError(null);
+        }
+        const loc = {
+          lat,
+          lng,
+          city: finalCity,
+          name: displayName,
+          source: 'gps',
+          pincode,
+          state,
+          accuracy,
+          supported,
+          timestamp: Date.now(),
+          hub_id: cityInfo?.hub_id || null,
+        };
+        setSelectedLocation(loc);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const msg = err?.message || '';
+        const code = err?.code;
+        // Map GeolocationPositionError codes
+        if (code === 1 || /denied|permission/i.test(msg)) {
+          setLocationStatus('denied');
+          setLocationError('Location access was denied.');
+        } else if (code === 2 || /unavailable|position/i.test(msg)) {
+          setLocationStatus('unavailable');
+          setLocationError('Unable to detect your location.');
+        } else if (code === 3 || /timeout/i.test(msg)) {
+          setLocationStatus('timeout');
+          setLocationError('Location request timed out.');
+        } else {
+          setLocationStatus('unavailable');
+          setLocationError('Unable to detect your location.');
+        }
+        // Keep selectedLocation as null — never Bengaluru
+        setSelectedLocation(null);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
+
+  // Wrap setSelectedLocation to always stamp source and handle unsupported
+  const setSelectedLocationWithSource = React.useCallback((loc) => {
+    if (!loc) {
+      setSelectedLocation(null);
+      setLocationStatus('unknown');
+      setLocationError(null);
+      return;
+    }
+    // If loc is string legacy, convert
+    if (typeof loc === 'string') {
+      setSelectedLocation({ name: loc, source: 'manual', city: null, lat: null, lng: null, supported: false });
+      setLocationStatus('manual');
+      return;
+    }
+    // Manual map pick should override
+    const hasCoords = loc.lat != null && loc.lng != null;
+    let resolved = null;
+    if (hasCoords) {
+      resolved = resolveCity({ lat: loc.lat, lng: loc.lng, pincode: loc.pincode, name: loc.name, text: loc.name });
+      if (resolved && resolved.city == null && resolved.supported === false) {
+        // unsupported area — keep coords but city null, show not available
+        const newLoc = { ...loc, city: null, source: loc.source || 'manual', supported: false, hub_id: null, timestamp: Date.now() };
+        setSelectedLocation(newLoc);
+        setLocationStatus('unsupported');
+        setLocationError('Zolve is currently not available in this area.');
+        return;
+      }
+    }
+    const final = {
+      ...loc,
+      city: loc.city ?? resolved?.city ?? null,
+      hub_id: loc.hub_id ?? resolved?.hub_id ?? null,
+      source: loc.source || 'manual',
+      supported: resolved ? resolved.supported !== false : loc.supported ?? true,
+      timestamp: Date.now(),
+    };
+    setSelectedLocation(final);
+    setLocationStatus(final.source === 'pincode' ? 'available' : 'manual');
+    setLocationError(null);
+  }, []);
+
   // provider live locations keyed by bookingId: { lat,lng, updatedAt, bookingId }
   const [providerLiveLocations, setProviderLiveLocations] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_live_locs`);
@@ -415,6 +599,86 @@ export const AppProvider = ({ children }) => {
     } catch {}
   }, []);
 
+  // Fetch societies (public, per city) — Supabase source of truth, 21 cities embedded
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const fetchSocieties = async () => {
+      setSocietiesLoading(true);
+      try {
+        const all = await SocietyService.fetchAllSocieties();
+        setSocieties(all);
+        // Also update legacy societyData for current city (Kolkata→Kolkata society, Mumbai→Mumbai, etc.) — never Bengaluru fallback
+        const resolved = resolveCity({ lat: selectedLocation?.lat, lng: selectedLocation?.lng, name: selectedLocation?.name });
+        const currentCity = resolved?.city || null;
+        if (!currentCity || resolved?.supported === false) {
+          // location unknown or unsupported — do not auto-assign Bengaluru, keep societies list but don't select
+          return;
+        }
+        const match = all.find(s => s.city === currentCity) || null;
+        if (match) {
+          setSocietyData({
+            name: match.name,
+            location: match.location,
+            manager: match.manager_name || match.manager || 'Society Manager',
+            units: match.units,
+            blocks: match.blocks,
+            stats: typeof match.stats === 'string' ? JSON.parse(match.stats) : match.stats,
+            // keep activeRequests from society_requests fetched separately
+            activeRequests: societyData.activeRequests || SOCIETY_DATA.activeRequests,
+            city: match.city,
+            hub_id: match.hub_id,
+            coords: match.coords,
+            pincode: match.pincode,
+            id: match.id,
+          });
+        }
+      } catch (e) {
+        console.warn('[societies] fetch error', e?.message || e);
+      } finally { setSocietiesLoading(false); }
+    };
+    fetchSocieties();
+  }, [selectedLocation?.lat, selectedLocation?.lng, selectedLocation?.name]);
+
+  // Fetch society requests for current city (global admin sees all, customer sees own city)
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const fetchReqs = async () => {
+      setSocietyRequestsLoading(true);
+      try {
+        const currentCity = resolveCity({ lat: selectedLocation?.lat, lng: selectedLocation?.lng, name: selectedLocation?.name })?.city;
+        // Fetch all requests then filter by city if needed; SocietyService handles city param
+        // For global view we fetch all; dashboard will filter
+        const reqs = await SocietyService.fetchSocietyRequests(currentCity ? { city: currentCity } : {});
+        setSocietyRequests(reqs);
+      } catch (e) {
+        console.warn('[society_requests] fetch error', e?.message || e);
+      } finally { setSocietyRequestsLoading(false); }
+    };
+    fetchReqs();
+  }, [selectedLocation?.lat, selectedLocation?.lng, selectedLocation?.name, supaUser?.id]);
+
+  // Fetch support tickets (Supabase unified) — real persistence, not localStorage
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    if (!supaUser?.id) {
+      // Guest sees fallback mock tickets only
+      return;
+    }
+    const fetchTickets = async () => {
+      setSupportTicketsLoading(true);
+      try {
+        const isAdmin = supaProfile?.role === 'admin' || supaProfile?.role === 'society_admin';
+        const data = isAdmin
+          ? await SupportTicketService.fetchAllTicketsAdmin({})
+          : await SupportTicketService.fetchMyTickets(supaUser);
+        setSupportTickets(data);
+      } catch (e) {
+        console.warn('[support_tickets] fetch error', e?.message || e);
+      } finally { setSupportTicketsLoading(false); }
+    };
+    fetchTickets();
+  }, [supaUser?.id, supaProfile?.role]);
+
   // Per-account zolveMoney: load on user switch, persist per-user
   useEffect(() => {
     const uid = supaUser?.id || supaProfile?.id || null
@@ -529,10 +793,10 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const registerExecutive = (formData) => {
+  const registerExecutive = async (formData) => {
     const vertical = formData.executiveVertical;
     const requiresApproval = vertical === 'community';
-    const app = {
+    const localApp = {
       id: `exec-app-${Date.now()}`,
       vertical,
       status: requiresApproval ? 'pending_approval' : 'active',
@@ -541,7 +805,41 @@ export const AppProvider = ({ children }) => {
       applicantEmail: formData.gmailAddress,
       createdAt: new Date().toISOString()
     };
-    setExecutiveApplications((prev) => [app, ...prev]);
+
+    // Try Supabase persistence first when configured and user is authenticated
+    let persistedApp = null
+    let supaError = null
+    if (isSupabaseConfigured() && supaUser?.id) {
+      try {
+        const res = await ExecutiveApplicationService.submitApplication(formData, supaUser)
+        // res.status is 'pending' or 'approved' (canonical). Map to legacy for local state compatibility
+        persistedApp = res
+        // Create a unified app object that preserves both canonical and legacy status for UI
+        const unified = {
+          ...localApp,
+          id: res.id || localApp.id,
+          status: res.status === 'pending' ? 'pending_approval' : res.status === 'approved' ? 'active' : res.status,
+          // also keep canonical for accurate display
+          canonicalStatus: res.status,
+          applicantId: res.applicantId || supaUser.id,
+          createdAt: res.createdAt || localApp.createdAt,
+          services: res.services || verticalServices(vertical),
+        }
+        setExecutiveApplications((prev) => [unified, ...prev]);
+        localApp.canonicalStatus = res.status
+        localApp.id = res.id
+      } catch (e) {
+        supaError = e
+        console.warn('[registerExecutive] Supabase insert failed, falling back to local', e?.message || e)
+        setExecutiveApplications((prev) => [localApp, ...prev]);
+      }
+    } else {
+      // No Supabase session — fallback to local only (dev mode). Still show pending UI, but remind to sign in for real persistence.
+      if (isSupabaseConfigured() && !supaUser?.id) {
+        console.warn('[registerExecutive] No authenticated user — application stored locally only. Sign in for persisted approval queue.')
+      }
+      setExecutiveApplications((prev) => [localApp, ...prev]);
+    }
 
     const executiveUser = {
       id: `usr-exec-${Date.now()}`,
@@ -554,24 +852,39 @@ export const AppProvider = ({ children }) => {
       mobileVerified: true,
       mobileVerifiedAt: new Date().toISOString(),
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-      location: 'Bengaluru',
+      location: selectedLocation?.name || selectedLocation?.city || null,
       assignedServices: EXECUTIVE_VERTICALS.find(v => v.id === vertical)?.services || []
     };
 
     if (!requiresApproval) {
-      setCurrentUser(executiveUser);
-      setActiveRole('executive');
-      setActiveTab('home');
+      // keep existing deprecated behavior for non-community (no approval needed)
       addNotification({ title: 'Executive Registration Complete', message: `Welcome, ${executiveUser.name}! Vertical: ${vertical}`, type: 'system' });
     } else {
       addNotification({ title: 'Executive Application Submitted', message: 'Community executive requires Society Admin approval. You will be activated shortly.', type: 'system' });
     }
-    return { app, executiveUser, requiresApproval };
+    const app = persistedApp ? { ...localApp, ...persistedApp, canonicalStatus: persistedApp.status } : localApp
+    return { app, executiveUser, requiresApproval, supaError };
   };
 
-  const approveExecutiveApplication = (appId) => {
-    setExecutiveApplications((prev) => prev.map(a => a.id === appId ? { ...a, status: 'active', approvedAt: new Date().toISOString() } : a));
-    // If currently pending executive user exists, activate them
+  const verticalServices = (vid) => EXECUTIVE_VERTICALS.find(v => v.id === vid)?.services || []
+
+  const approveExecutiveApplication = async (appId) => {
+    // Try Supabase first
+    if (isSupabaseConfigured() && supaUser?.id) {
+      try {
+        // Check if admin
+        const isAdmin = supaProfile?.role === 'admin'
+        if (isAdmin) {
+          await ExecutiveApplicationService.approveApplication(appId, supaUser)
+        } else {
+          // For local fallback or non-supabase, try supabase anyway — RLS will enforce; fallback to local
+          try { await ExecutiveApplicationService.approveApplication(appId, supaUser) } catch {}
+        }
+      } catch (e) {
+        console.warn('[approveExecutiveApplication] Supabase approve failed', e?.message || e)
+      }
+    }
+    setExecutiveApplications((prev) => prev.map(a => a.id === appId ? { ...a, status: 'active', canonicalStatus: 'approved', approvedAt: new Date().toISOString() } : a));
     if (currentUser && currentUser.role === 'executive' && currentUser.executiveStatus === 'pending_approval') {
       const updated = { ...currentUser, executiveStatus: 'active' };
       setCurrentUser(updated);
@@ -579,8 +892,19 @@ export const AppProvider = ({ children }) => {
     addNotification({ title: 'Executive Approved', message: `Application ${appId} approved by Society Admin.`, type: 'system' });
   };
 
-  const rejectExecutiveApplication = (appId) => {
-    setExecutiveApplications((prev) => prev.map(a => a.id === appId ? { ...a, status: 'rejected' } : a));
+  const rejectExecutiveApplication = async (appId, reason) => {
+    if (isSupabaseConfigured() && supaUser?.id) {
+      try {
+        if (supaProfile?.role === 'admin' && reason) {
+          await ExecutiveApplicationService.rejectApplication(appId, supaUser, reason)
+        } else if (reason) {
+          try { await ExecutiveApplicationService.rejectApplication(appId, supaUser, reason) } catch {}
+        }
+      } catch (e) {
+        console.warn('[rejectExecutiveApplication] Supabase reject failed', e?.message || e)
+      }
+    }
+    setExecutiveApplications((prev) => prev.map(a => a.id === appId ? { ...a, status: 'rejected', canonicalStatus: 'rejected', rejectionReason: reason || a.rejectionReason } : a));
     addNotification({ title: 'Executive Rejected', message: `Application ${appId} rejected.`, type: 'system' });
   };
 
@@ -977,8 +1301,8 @@ export const AppProvider = ({ children }) => {
     return true;
   };
 
-  // Support / Dispute Ticket Creation — only for signed-in users (Join as User)
-  const createSupportTicket = (ticketData) => {
+  // Support / Dispute Ticket Creation — Supabase persisted (unified disputes)
+  const createSupportTicket = async (ticketData) => {
     if (!currentUser || activeRole !== 'customer') {
       addNotification({
         title: 'Sign in required',
@@ -989,6 +1313,48 @@ export const AppProvider = ({ children }) => {
       setIsAuthModalOpen(true);
       return null;
     }
+    // Try Supabase first
+    if (isSupabaseConfigured() && supaUser?.id) {
+      try {
+        const ticket = await SupportTicketService.createTicket(
+          { ...ticketData, selectedLocation },
+          supaUser,
+          supaProfile
+        );
+        // Map to legacy shape for existing UI (keep both)
+        const mapped = {
+          id: ticket.id,
+          ticketCode: ticket.ticketCode,
+          ticket_code: ticket.ticketCode,
+          userName: ticket.userName,
+          user_name: ticket.userName,
+          userRole: ticket.userRole || activeRole,
+          bookingCode: ticket.bookingCode || ticketData.bookingCode,
+          booking_code: ticket.bookingCode || ticketData.bookingCode,
+          category: ticket.category,
+          description: ticket.description,
+          status: ticket.status,
+          resolutionNotes: ticket.resolutionNotes,
+          resolution_notes: ticket.resolutionNotes,
+          createdAt: ticket.createdAt,
+          created_at: ticket.createdAt,
+          city: ticket.city,
+          hub_id: ticket.hub_id,
+          _supabase: true,
+        };
+        setSupportTickets((prev) => [mapped, ...prev]);
+        addNotification({
+          title: `Ticket #${ticket.ticketCode} Raised`,
+          message: `Our Trust & Safety Arbitration Council is reviewing your case (${ticket.city || 'your city'}).`,
+          type: 'system'
+        });
+        return mapped;
+      } catch (e) {
+        console.warn('[createSupportTicket] Supabase failed, falling back to local', e?.message || e);
+      }
+    }
+    // Fallback local (dev without Supabase or unauthenticated edge) — never Bengaluru
+    const resolvedFallback = resolveCity({ lat: selectedLocation?.lat, lng: selectedLocation?.lng, name: selectedLocation?.name });
     const newTicket = {
       id: `tkt-${Date.now()}`,
       ticketCode: `TCK-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -996,6 +1362,8 @@ export const AppProvider = ({ children }) => {
       userRole: activeRole,
       createdAt: new Date().toISOString(),
       status: 'open',
+      city: resolvedFallback?.city || null,
+      hub_id: resolvedFallback?.hub_id || null,
       ...ticketData
     };
     setSupportTickets((prev) => [newTicket, ...prev]);
@@ -1005,6 +1373,116 @@ export const AppProvider = ({ children }) => {
       type: 'system'
     });
     return newTicket;
+  };
+
+  const updateSupportTicketStatus = async (ticketId, patch) => {
+    if (!isSupabaseConfigured() || !supaUser?.id) {
+      // local fallback
+      setSupportTickets(prev => prev.map(t => t.id === ticketId ? { ...t, ...patch, status: patch.status || t.status, resolutionNotes: patch.resolution_notes || patch.resolutionNotes || t.resolutionNotes, updatedAt: new Date().toISOString() } : t));
+      return;
+    }
+    try {
+      const updated = await SupportTicketService.updateTicketStatus(ticketId, { status: patch.status, resolution_notes: patch.resolution_notes || patch.resolutionNotes }, supaUser);
+      setSupportTickets(prev => prev.map(t => t.id === ticketId ? {
+        ...t,
+        status: updated.status,
+        resolutionNotes: updated.resolutionNotes,
+        resolution_notes: updated.resolution_notes,
+        assignedAdminId: updated.assignedAdminId,
+        updatedAt: updated.updatedAt,
+      } : t));
+      // Refresh from server for admin global view
+      if (supaProfile?.role === 'admin' || supaProfile?.role === 'society_admin') {
+        try {
+          const all = await SupportTicketService.fetchAllTicketsAdmin({});
+          setSupportTickets(all.map(r => ({
+            id: r.id, ticketCode: r.ticketCode, userName: r.userName, userRole: r.userRole,
+            bookingCode: r.bookingCode, category: r.category, description: r.description,
+            status: r.status, resolutionNotes: r.resolutionNotes, createdAt: r.createdAt, city: r.city, hub_id: r.hub_id
+          })));
+        } catch {}
+      }
+      addNotification({ title: `Ticket ${patch.status}`, message: `Ticket #${ticketId} marked ${patch.status}`, type: 'system' });
+      return updated;
+    } catch (e) {
+      console.warn('[updateSupportTicketStatus] failed', e?.message || e);
+      throw e;
+    }
+  };
+
+  const createSocietyRequest = async (requestData) => {
+    if (!currentUser || activeRole !== 'customer') {
+      addNotification({ title: 'Sign in required', message: 'Please sign in as a User to raise a Society ticket.', type: 'system' });
+      setAuthModalTab('register'); setIsAuthModalOpen(true); return null;
+    }
+    if (isSupabaseConfigured() && supaUser?.id) {
+      try {
+        const created = await SocietyService.createSocietyRequest(
+          { ...requestData, selectedLocation },
+          supaUser,
+          supaProfile
+        );
+        const mapped = {
+          id: created.id,
+          society_id: created.society_id,
+          society_name: created.society_name,
+          city: created.city,
+          hub_id: created.hub_id,
+          unit: created.unit_or_block,
+          unit_or_block: created.unit_or_block,
+          service: created.service_type,
+          service_type: created.service_type,
+          priority: created.priority,
+          status: created.status,
+          provider: created.assigned_provider_name || 'Cooperative Team',
+          assigned_provider_name: created.assigned_provider_name,
+          date: new Date(created.created_at).toLocaleString(),
+          created_at: created.created_at,
+          description: created.description,
+        };
+        setSocietyRequests(prev => [mapped, ...prev]);
+        // Update legacy societyData.activeRequests for backward compat
+        setSocietyData(prev => ({ ...prev, activeRequests: [mapped, ...(prev.activeRequests || [])].slice(0, 20) }));
+        addNotification({ title: 'Society Ticket Raised', message: `Society request for ${mapped.society_name} (${mapped.city}) dispatched.`, type: 'system' });
+        return mapped;
+      } catch (e) {
+        console.warn('[createSocietyRequest] Supabase failed', e?.message || e);
+        throw e;
+      }
+    }
+    // fallback local — never Bengaluru
+    const resolvedSocFallback = resolveCity({ lat: selectedLocation?.lat, lng: selectedLocation?.lng, name: selectedLocation?.name });
+    const newReq = {
+      id: `soc-req-${Date.now()}`,
+      unit: requestData.unit_or_block || requestData.unit,
+      service: `${requestData.service_type || 'General'} - ${String(requestData.description || '').substring(0, 30)}...`,
+      priority: requestData.priority || 'Normal',
+      status: 'PENDING',
+      provider: 'Cooperative Team',
+      date: 'Today, Scheduled',
+      city: resolvedSocFallback?.city || null,
+      hub_id: resolvedSocFallback?.hub_id || null,
+      ...requestData,
+    };
+    setSocietyRequests(prev => [newReq, ...prev]);
+    setSocietyData(prev => ({ ...prev, activeRequests: [newReq, ...(prev.activeRequests || [])] }));
+    addNotification({ title: 'Society Maintenance Request Dispatched', message: `${newReq.priority} priority ticket dispatched.`, type: 'system' });
+    return newReq;
+  };
+
+  const updateSocietyRequestStatus = async (requestId, patch) => {
+    if (!isSupabaseConfigured() || !supaUser?.id) {
+      setSocietyRequests(prev => prev.map(r => r.id === requestId ? { ...r, ...patch, status: patch.status || r.status } : r));
+      return;
+    }
+    try {
+      const updated = await SocietyService.updateRequestStatus(requestId, patch, supaUser);
+      setSocietyRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: updated.status, provider: updated.assigned_provider_name || r.provider } : r));
+      return updated;
+    } catch (e) {
+      console.warn('[updateSocietyRequestStatus] failed', e?.message || e);
+      throw e;
+    }
   };
 
   // Admin Actions
@@ -1057,6 +1535,7 @@ export const AppProvider = ({ children }) => {
         rejectExecutiveApplication,
         executiveApplications,
         executiveVerticals: EXECUTIVE_VERTICALS,
+        ExecutiveApplicationService,
         theme,
         toggleTheme,
         setTheme,
@@ -1082,15 +1561,28 @@ export const AppProvider = ({ children }) => {
         joinCommunityProject,
         societyData,
         setSocietyData,
+        societies,
+        societiesLoading,
+        societyRequests,
+        societyRequestsLoading,
         earningsLedger,
         supportTickets,
+        supportTicketsLoading,
         createSupportTicket,
+        updateSupportTicketStatus,
+        createSocietyRequest,
+        updateSocietyRequestStatus,
+        SupportTicketService,
+        SocietyService,
         approveProviderKYC,
         notifications,
         addNotification,
         markNotificationRead,
         selectedLocation,
-        setSelectedLocation,
+        setSelectedLocation: setSelectedLocationWithSource,
+        locationStatus,
+        locationError,
+        setLocationStatus: setLocationStatus,
         providerLiveLocations,
         setProviderLiveLocations,
         updateProviderLiveLocation,

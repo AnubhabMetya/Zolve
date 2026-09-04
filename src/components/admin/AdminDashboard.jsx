@@ -14,30 +14,61 @@ import {
   Plus,
   Vote,
   Layers,
-  Search
+  Search,
+  Clock,
+  Mail,
+  Phone,
+  Building2
 } from 'lucide-react';
 import { getAdminDemandForecast, getFraudAnomalyFlags } from '../../services/aiEngine';
 import { WorkforceAllocation } from '../ai/WorkforceAllocation';
 import { TrustAnomalyDashboard } from '../ai/TrustAnomalyDashboard';
 import { EmergencyDispatch } from '../ai/EmergencyDispatch';
 import { loadForecastPredictions } from '../../services/aiDataLoader.js';
+import { useAuth } from '../../context/AuthContext';
+import { ExecutiveApplicationService } from '../../services/executiveApplicationService';
+import { isSupabaseConfigured } from '../../lib/supabaseClient';
 
 export const AdminDashboard = () => {
   const {
     providers,
     approveProviderKYC,
     supportTickets,
+    societies,
+    societyRequests,
+    updateSupportTicketStatus,
+    updateSocietyRequestStatus,
     bookings,
     proposals,
     createProposal,
     addNotification
   } = useApp();
 
-  const [activeAdminTab, setActiveAdminTab] = useState('overview'); // 'overview' | 'kyc' | 'disputes' | 'proposals' | 'ai_demand' | 'workforce' | 'trust' | 'emergency'
+  const [activeAdminTab, setActiveAdminTab] = useState('overview'); // 'overview' | 'kyc' | 'disputes' | 'proposals' | 'ai_demand' | 'workforce' | 'trust' | 'emergency' | 'executive_approvals'
   const [isNewProposalModalOpen, setIsNewProposalModalOpen] = useState(false);
   const [forecastPredictions, setForecastPredictions] = useState([]);
   const [forecastLoading, setForecastLoading] = useState(true);
   const [forecastError, setForecastError] = useState(null);
+
+  // Executive Approvals state
+  const { user: adminUser, profile } = useAuth();
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'society_admin';
+  const [execApps, setExecApps] = useState([]);
+  const [execLoading, setExecLoading] = useState(false);
+  const [execError, setExecError] = useState(null);
+  const [rejectReasons, setRejectReasons] = useState({});
+  const [rejectingId, setRejectingId] = useState(null);
+  const [approvingId, setApprovingId] = useState(null);
+
+  // Unified disputes filters (global admin, city-specific)
+  const [selectedDisputeCity, setSelectedDisputeCity] = useState('All');
+  const [selectedDisputeStatus, setSelectedDisputeStatus] = useState('All');
+  const [selectedDisputeCategory, setSelectedDisputeCategory] = useState('All');
+  const [disputeSearch, setDisputeSearch] = useState('');
+  const [resolutionInputs, setResolutionInputs] = useState({});
+  const [ticketActionLoading, setTicketActionLoading] = useState(null);
+  const [selectedSocietyCity, setSelectedSocietyCity] = useState('All');
+  const [societyActionLoading, setSocietyActionLoading] = useState(null);
 
   // New Proposal state
   const [newPropTitle, setNewPropTitle] = useState('');
@@ -66,6 +97,49 @@ export const AdminDashboard = () => {
       });
     return () => { cancelled = true; };
   }, []);
+
+  const fetchExecutiveApprovals = React.useCallback(async () => {
+    if (!isSupabaseConfigured()) { setExecError('Supabase not configured'); return; }
+    if (!isAdmin) { setExecError('Access restricted — admin only'); return; }
+    setExecLoading(true); setExecError(null);
+    try {
+      const data = await ExecutiveApplicationService.fetchPendingApplications();
+      setExecApps(data);
+    } catch (e) {
+      setExecError(e?.message || 'Failed to load pending applications');
+    } finally { setExecLoading(false); }
+  }, [isAdmin]);
+
+  React.useEffect(() => {
+    if (activeAdminTab === 'executive_approvals') fetchExecutiveApprovals();
+  }, [activeAdminTab, fetchExecutiveApprovals]);
+
+  const handleApproveExec = async (appId) => {
+    if (!isAdmin) return;
+    setApprovingId(appId);
+    try {
+      await ExecutiveApplicationService.approveApplication(appId, adminUser);
+      addNotification({ title: 'Executive Approved', message: `Application ${appId} approved.`, type: 'system' });
+      await fetchExecutiveApprovals();
+    } catch (e) {
+      setExecError(e?.message || 'Approve failed');
+    } finally { setApprovingId(null); }
+  };
+
+  const handleRejectExec = async (appId) => {
+    const reason = rejectReasons[appId];
+    if (!reason || !String(reason).trim()) { alert('Please provide a rejection reason'); return; }
+    if (!isAdmin) return;
+    setRejectingId(appId);
+    try {
+      await ExecutiveApplicationService.rejectApplication(appId, adminUser, reason);
+      addNotification({ title: 'Executive Rejected', message: `Application ${appId} rejected.`, type: 'system' });
+      setRejectReasons(prev => { const n={...prev}; delete n[appId]; return n; });
+      await fetchExecutiveApprovals();
+    } catch (e) {
+      setExecError(e?.message || 'Reject failed');
+    } finally { setRejectingId(null); }
+  };
 
   // Handle Proposal Submission
   const handleCreateProposal = (e) => {
@@ -112,6 +186,7 @@ export const AdminDashboard = () => {
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
           { key: 'overview', label: 'Platform Overview & GMV' },
+          { key: 'executive_approvals', label: `Executive Approvals ${execApps.length ? `(${execApps.length})` : ''}` },
           { key: 'kyc', label: `Provider KYC Verification Queue (${providers.length})` },
           { key: 'disputes', label: `Trust & Safety Disputes (${supportTickets.length})` },
           { key: 'ai_demand', label: 'AI Demand Prediction & Fraud Monitor' },
@@ -264,46 +339,157 @@ export const AdminDashboard = () => {
         </div>
       )}
 
-      {/* TAB 3: DISPUTES ARBITRATION */}
+      {/* TAB 3: DISPUTES ARBITRATION — Unified (billing, overcharge, society tickets) + Societies per City */}
       {activeAdminTab === 'disputes' && (
-        <div className="space-y-6 animate-in fade-in">
+        <div className="space-y-8 animate-in fade-in">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-display">
-              Trust & Safety Arbitration Council
+              Trust & Safety Arbitration Council — Unified Disputes
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Review customer disputes, price adjustments, and contractor quality compliance.
+              Review all customer disputes: billing, overcharge, payment, provider, safety & society tickets — city-stamped via both GPS + pincode. Global admin can access every city.
             </p>
           </div>
 
-          <div className="space-y-4">
-            {supportTickets.map((tkt) => (
-              <div
-                key={tkt.id}
-                className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle p-6 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-purple-700 text-sm">#{tkt.ticketCode}</span>
-                    <span className="text-xs font-bold text-slate-900">• {tkt.category}</span>
-                    <span className="px-2 py-0.5 rounded-full bg-coop-100 text-coop-800 text-[10px] font-bold">
-                      {tkt.status.toUpperCase()}
-                    </span>
+          {/* Societies per City — Global Admin View */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle p-6 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Building2 className="w-4 h-4 text-brand-700" /> Societies by City ({societies.length} societies across 21 hubs)</h3>
+              <span className="text-[11px] text-slate-500">Select a city to review its societies & issues</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {['All', ...Array.from(new Set(societies.map(s=>s.city))).sort()].map(city => (
+                <button key={city} onClick={()=>setSelectedSocietyCity(city)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${selectedSocietyCity===city ? 'bg-brand-900 text-white border-brand-900' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`}>{city}</button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(selectedSocietyCity==='All' ? societies : societies.filter(s=>s.city===selectedSocietyCity)).map(soc => (
+                <div key={soc.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2">
+                  <div className="text-sm font-bold text-slate-900">{soc.name}</div>
+                  <div className="text-xs text-slate-600">{soc.location} • {soc.city}, {soc.state} — {soc.pincode}</div>
+                  <div className="text-[11px] text-slate-500">Manager: {soc.manager_name || '—'} • {soc.units} units • {soc.blocks} blocks</div>
+                  <div className="flex flex-wrap gap-2 text-[10px] pt-1">
+                    <span className="px-2 py-1 rounded-full bg-white border font-bold">Open: {(() => { try{ const st = typeof soc.stats==='string'?JSON.parse(soc.stats):soc.stats; return st?.openRequests ?? 0 }catch{return 0} })()}</span>
+                    <span className="px-2 py-1 rounded-full bg-white border">Coords: {(() => { try{ const c = typeof soc.coords==='string'?JSON.parse(soc.coords):soc.coords; return c ? `${Number(c.lat).toFixed(2)},${Number(c.lng).toFixed(2)}` : '—'}catch{return '—'} })()}</span>
+                    <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">{soc.hub_id}</span>
                   </div>
-                  <span className="text-xs text-slate-400">Related Booking: #{tkt.bookingCode}</span>
                 </div>
-
-                <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  "{tkt.description}"
-                </p>
-
-                {tkt.resolutionNotes && (
-                  <div className="text-xs text-coop-800 font-medium">
-                    Arbitration Officer Note: {tkt.resolutionNotes}
+              ))}
+              {(selectedSocietyCity==='All' ? societies : societies.filter(s=>s.city===selectedSocietyCity)).length===0 && <div className="col-span-full text-center text-xs text-slate-400 py-6">No societies for {selectedSocietyCity}</div>}
+            </div>
+            {/* Society Requests for selected city */}
+            <div className="pt-4 border-t border-slate-100 space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Society Requests — {selectedSocietyCity} ({(selectedSocietyCity==='All' ? societyRequests : societyRequests.filter(r=>r.city===selectedSocietyCity)).length})</h4>
+              {(selectedSocietyCity==='All' ? societyRequests : societyRequests.filter(r=>r.city===selectedSocietyCity)).slice(0, 8).map(req => (
+                <div key={req.id} className="p-3 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-slate-900">{req.society_name} • {req.unit_or_block}</div>
+                    <div className="text-slate-600">{req.service_type} — {req.description?.slice(0,80)}</div>
+                    <div className="text-[11px] text-slate-500">{req.city} • {req.priority} • {req.status} • {new Date(req.created_at).toLocaleDateString()}</div>
                   </div>
-                )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {['ASSIGNED','IN_PROGRESS','COMPLETED'].map(st => (
+                      <button key={st} disabled={societyActionLoading===req.id} onClick={async()=>{
+                        if(!isAdmin){ alert('Admin only'); return; }
+                        setSocietyActionLoading(req.id);
+                        try{ await updateSocietyRequestStatus(req.id, { status: st }); addNotification({ title:`Society ${st}`, message:`Request ${req.id.slice(0,8)} → ${st}`, type:'system'}); }catch(e){ alert(e?.message||'Failed'); } finally{ setSocietyActionLoading(null); }
+                      }} className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${req.status===st ? 'bg-brand-900 text-white border-brand-900' : 'bg-white hover:bg-slate-50'}`}>{st}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {(selectedSocietyCity==='All' ? societyRequests : societyRequests.filter(r=>r.city===selectedSocietyCity)).length===0 && <div className="text-xs text-slate-400 text-center py-3">No society requests for {selectedSocietyCity}.</div>}
+            </div>
+          </div>
+
+          {/* Unified Support Tickets — Filters */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle p-6 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-slate-900">Unified Dispute Tickets — All Categories ({supportTickets.length})</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <Search className="w-3.5 h-3.5 text-slate-400" />
+                  <input value={disputeSearch} onChange={e=>setDisputeSearch(e.target.value)} placeholder="Search ticket, email, city..." className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs w-36" />
+                </div>
+                <select value={selectedDisputeCity} onChange={e=>setSelectedDisputeCity(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
+                  {['All', ...Array.from(new Set([...societies.map(s=>s.city), ...supportTickets.map(t=>t.city).filter(Boolean)])).sort()].map(c=> <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select value={selectedDisputeStatus} onChange={e=>setSelectedDisputeStatus(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
+                  {['All','open','under_review','resolved','dismissed'].map(s=> <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select value={selectedDisputeCategory} onChange={e=>setSelectedDisputeCategory(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
+                  {['All',"Provider didn't arrive (No Show)",'Service not completed / Incomplete work','Poor quality of service','Property damage during repair','Overcharging / Price mismatch','Payment or billing issue','Safety or conduct concern','Society ticket','Other query','Billing / Overcharge Query'].map(c=> <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
-            ))}
+            </div>
+
+            <div className="space-y-4">
+              {supportTickets
+                .filter(t=> selectedDisputeCity==='All' || t.city===selectedDisputeCity)
+                .filter(t=> selectedDisputeStatus==='All' || t.status===selectedDisputeStatus)
+                .filter(t=> selectedDisputeCategory==='All' || t.category===selectedDisputeCategory)
+                .filter(t=>{
+                  if(!disputeSearch) return true;
+                  const s=disputeSearch.toLowerCase();
+                  return (t.ticketCode||'').toLowerCase().includes(s) || (t.userName||'').toLowerCase().includes(s) || (t.userEmail||'').toLowerCase().includes(s) || (t.city||'').toLowerCase().includes(s) || (t.description||'').toLowerCase().includes(s);
+                })
+                .map((tkt) => (
+                <div key={tkt.id} className="bg-slate-50 rounded-3xl border border-slate-200/90 p-6 space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-bold text-purple-700 text-sm">#{tkt.ticketCode || tkt.ticket_code}</span>
+                      <span className="text-xs font-bold text-slate-900">• {tkt.category}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-coop-100 text-coop-800 text-[10px] font-bold">{String(tkt.status||'').toUpperCase()}</span>
+                      {tkt.city && <span className="px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 text-[10px] font-bold">{tkt.city}</span>}
+                      {tkt.hub_id && <span className="px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[9px] border border-amber-200">{tkt.hub_id}</span>}
+                    </div>
+                    <span className="text-xs text-slate-400">Booking: #{tkt.bookingCode || tkt.booking_code || '—'} • {tkt.createdAt ? new Date(tkt.createdAt).toLocaleDateString() : (tkt.created_at ? new Date(tkt.created_at).toLocaleDateString() : '')}</span>
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    <span className="font-semibold text-slate-900">{tkt.userName || tkt.user_name}</span>
+                    {tkt.userEmail && <span className="text-slate-500"> • {tkt.userEmail}</span>}
+                    {tkt.userPhone && <span className="text-slate-500"> • {tkt.userPhone}</span>}
+                  </div>
+                  <p className="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-100">"{tkt.description}"</p>
+                  {tkt.resolutionNotes && <div className="text-xs text-coop-800 font-medium">Arbitration Note: {tkt.resolutionNotes || tkt.resolution_notes}</div>}
+                  {isAdmin && (
+                    <div className="pt-3 border-t border-slate-200 space-y-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          value={resolutionInputs[tkt.id]||''}
+                          onChange={e=>setResolutionInputs(prev=>({ ...prev, [tkt.id]: e.target.value }))}
+                          placeholder="Resolution notes (required for resolve/dismiss)"
+                          className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                        />
+                        <div className="flex gap-1.5 shrink-0">
+                          <button disabled={ticketActionLoading===tkt.id} onClick={async()=>{
+                            setTicketActionLoading(tkt.id);
+                            try{ await updateSupportTicketStatus(tkt.id, { status:'under_review' }); }catch(e){ alert(e?.message||'Failed'); } finally{ setTicketActionLoading(null); }
+                          }} className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white text-xs font-bold">Under Review</button>
+                          <button disabled={ticketActionLoading===tkt.id} onClick={async()=>{
+                            const notes=resolutionInputs[tkt.id];
+                            if(!notes||!String(notes).trim()){ alert('Add resolution notes'); return; }
+                            setTicketActionLoading(tkt.id);
+                            try{ await updateSupportTicketStatus(tkt.id, { status:'resolved', resolution_notes: notes, resolutionNotes: notes }); }catch(e){ alert(e?.message||'Failed'); } finally{ setTicketActionLoading(null); }
+                          }} className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold">Resolve</button>
+                          <button disabled={ticketActionLoading===tkt.id} onClick={async()=>{
+                            const notes=resolutionInputs[tkt.id];
+                            if(!notes||!String(notes).trim()){ alert('Add resolution notes for dismiss'); return; }
+                            setTicketActionLoading(tkt.id);
+                            try{ await updateSupportTicketStatus(tkt.id, { status:'dismissed', resolution_notes: notes, resolutionNotes: notes }); }catch(e){ alert(e?.message||'Failed'); } finally{ setTicketActionLoading(null); }
+                          }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-bold">Dismiss</button>
+                        </div>
+                      </div>
+                      {ticketActionLoading===tkt.id && <div className="text-[11px] text-slate-500">Updating...</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {supportTickets.filter(t=> selectedDisputeCity==='All' || t.city===selectedDisputeCity).filter(t=> selectedDisputeStatus==='All' || t.status===selectedDisputeStatus).filter(t=> selectedDisputeCategory==='All' || t.category===selectedDisputeCategory).filter(t=>{
+                if(!disputeSearch) return true;
+                const s=disputeSearch.toLowerCase(); return (t.ticketCode||'').toLowerCase().includes(s) || (t.userName||'').toLowerCase().includes(s) || (t.city||'').toLowerCase().includes(s);
+              }).length===0 && <div className="text-center text-xs text-slate-400 py-8">No tickets match filters. Try All cities or different category.</div>}
+            </div>
           </div>
         </div>
       )}
@@ -392,6 +578,102 @@ export const AdminDashboard = () => {
       {activeAdminTab === 'emergency' && (
         <div className="space-y-6 animate-in fade-in">
           <EmergencyDispatch providers={providers} bookings={bookings} />
+        </div>
+      )}
+
+      {/* TAB: EXECUTIVE APPROVALS — Community & Society Executive queue */}
+      {activeAdminTab === 'executive_approvals' && (
+        <div className="space-y-6 animate-in fade-in">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 font-display">Executive Approvals — Community & Society Services</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Review pending Community & Society Executive applications. Approve or reject with reason. Data from Supabase executive_applications.</p>
+          </div>
+
+          {!isSupabaseConfigured() && (
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800">Supabase not configured — approval queue unavailable.</div>
+          )}
+          {!isAdmin && isSupabaseConfigured() && (
+            <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-700">Access restricted — admin role required (profiles.role = admin).</div>
+          )}
+          {isAdmin && isSupabaseConfigured() && (
+            <>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900">Pending Applications ({execApps.length})</h3>
+                <button onClick={fetchExecutiveApprovals} disabled={execLoading} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold disabled:opacity-60">{execLoading ? 'Loading…' : 'Refresh'}</button>
+              </div>
+              {execError && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">{execError}</div>}
+              {execLoading ? (
+                <div className="p-8 rounded-3xl bg-white border text-center text-sm text-slate-500">Loading pending applications…</div>
+              ) : execApps.length === 0 ? (
+                <div className="p-8 rounded-3xl bg-white border border-slate-200 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto"><Building2 className="w-6 h-6 text-slate-400" /></div>
+                  <p className="text-sm text-slate-500">No pending Community & Society Executive applications.</p>
+                  <p className="text-[11px] text-slate-400">New submissions will appear here in real time.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {execApps.map((app) => (
+                    <div key={app.id} className="bg-white rounded-3xl border border-slate-200 shadow-subtle p-6 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-base font-bold text-slate-900">{app.fullName || app.applicantName}</h4>
+                          <p className="text-xs text-slate-600 font-medium flex items-center gap-1"><Building2 className="w-3.5 h-3.5 text-amber-600" /> Community & Society Services</p>
+                          <p className="text-[11px] text-slate-500 capitalize">{app.vertical} vertical</p>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold">PENDING</span>
+                      </div>
+
+                      <div className="space-y-1.5 text-xs">
+                        <div className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-slate-400" /><span className="font-semibold">Email:</span> <span className="text-slate-700">{app.email || app.applicantEmail}</span></div>
+                        <div className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-slate-400" /><span className="font-semibold">Phone:</span> <span className="text-slate-700">+91 {app.phone || app.applicantPhone}</span></div>
+                        {app.services?.length ? <div className="pt-1"><span className="font-semibold">Services/category:</span> <span className="text-slate-600">{app.services.join(', ')}</span></div> : null}
+                        <div><span className="font-semibold">Submitted:</span> <span className="text-slate-600">{app.createdAt ? new Date(app.createdAt).toLocaleString() : '-'}</span></div>
+                        <div><span className="font-semibold">Status:</span> <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">{String(app.status || '').toUpperCase()}</span></div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 space-y-3">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApproveExec(app.id)}
+                            disabled={approvingId === app.id || rejectingId === app.id}
+                            className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                          >
+                            <CheckCircle2 className="w-4 h-4" /> {approvingId === app.id ? 'Approving…' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const el = document.getElementById(`reject-reason-${app.id}`);
+                              if (el) el.focus();
+                            }}
+                            className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center justify-center gap-1.5"
+                          >
+                            <XCircle className="w-4 h-4" /> Reject
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            id={`reject-reason-${app.id}`}
+                            value={rejectReasons[app.id] || ''}
+                            onChange={(e) => setRejectReasons(prev => ({ ...prev, [app.id]: e.target.value }))}
+                            placeholder="Rejection reason (required for reject)"
+                            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none"
+                          />
+                          <button
+                            onClick={() => handleRejectExec(app.id)}
+                            disabled={rejectingId === app.id}
+                            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-bold"
+                          >
+                            {rejectingId === app.id ? 'Rejecting…' : 'Confirm Reject'}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400">Approve stores approved_by = authenticated admin ID and approved_at; Reject persists rejected status and rejection metadata; list refreshes.</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 

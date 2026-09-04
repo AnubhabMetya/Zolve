@@ -62,8 +62,15 @@ export default function MapView({
   showRoute = true,
   interactive = true,
 }) {
-  const center = providerPos || customerPos || { lat: 12.9716, lng: 77.5946 };
+  const center = providerPos || customerPos || null;
   const hasBoth = providerPos && customerPos;
+  if (!center) {
+    return (
+      <div style={{ height, width: '100%' }} className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center text-xs text-slate-500">
+        Location not set — Choose location manually
+      </div>
+    );
+  }
 
   return (
     <div style={{ height, width: '100%' }} className="rounded-2xl overflow-hidden border border-slate-200">

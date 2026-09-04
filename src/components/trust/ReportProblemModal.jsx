@@ -10,6 +10,7 @@ const DISPUTE_CATEGORIES = [
   "Overcharging / Price mismatch",
   "Payment or billing issue",
   "Safety or conduct concern",
+  "Society ticket",
   "Other query"
 ];
 
@@ -23,7 +24,7 @@ export const ReportProblemModal = () => {
 
   if (!isReportProblemOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!currentUser || activeRole !== 'customer') {
       addNotification({
@@ -36,15 +37,20 @@ export const ReportProblemModal = () => {
       return;
     }
     setIsSubmitting(true);
-
-    const result = createSupportTicket({
-      bookingCode: selectedBookingCode,
-      category,
-      description
-    });
-
-    setIsSubmitting(false);
-    if (result) setIsReportProblemOpen(false);
+    try {
+      const booking = bookings.find(b => b.bookingCode === selectedBookingCode);
+      const result = await createSupportTicket({
+        bookingCode: selectedBookingCode,
+        bookingId: booking?.id || null,
+        category,
+        description
+      });
+      if (result) setIsReportProblemOpen(false);
+    } catch (err) {
+      addNotification({ title: 'Failed to submit', message: err?.message || 'Could not raise dispute', type: 'system' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

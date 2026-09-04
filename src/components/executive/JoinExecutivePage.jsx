@@ -1,14 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
+import { isSupabaseConfigured } from '../../lib/supabaseClient';
+import { ExecutiveApplicationService } from '../../services/executiveApplicationService';
 import { sendMobileOtp, verifyMobileOtp, sendEmailOtp, verifyEmailOtp, generateOtp, isValidIndianMobile, isValidEmail } from '../../services/otpService';
-import { Home, HeartHandshake, Building2, Send, CheckCircle2, AlertCircle, Phone, Mail, User, ArrowRight, Clock, ShieldCheck } from 'lucide-react';
+import { Home, HeartHandshake, Building2, Send, CheckCircle2, AlertCircle, Phone, Mail, User, ArrowRight, Clock, ShieldCheck, XCircle } from 'lucide-react';
 
 const iconMap = { Home, HeartHandshake, Building2 };
 
 export const JoinExecutivePage = () => {
   const { executiveVerticals, registerExecutive, setActiveTab } = useApp();
+  const { user: supaUser } = useAuth();
   const [selectedVertical, setSelectedVertical] = useState(null);
-  const [step, setStep] = useState(1); // 1 pick vertical, 2 form, 3 otp
+  const [step, setStep] = useState(1); // 1 pick vertical, 2 form, 3 otp, 4 status
   const [fullName, setFullName] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [gmailAddress, setGmailAddress] = useState('');
@@ -20,6 +24,8 @@ export const JoinExecutivePage = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [otpExpiresAt, setOtpExpiresAt] = useState(null);
   const [sendInfo, setSendInfo] = useState(null);
+  const [persistedApp, setPersistedApp] = useState(null);
+  const [myAppLoading, setMyAppLoading] = useState(false);
   const refs = useRef([]);
 
   useEffect(() => {
@@ -28,6 +34,42 @@ export const JoinExecutivePage = () => {
       return () => clearTimeout(t);
     }
   }, [resendCountdown]);
+
+  // Fetch real DB status for applicant — source of truth is Supabase, not localStorage
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supaUser?.id) return;
+    let cancelled = false;
+    const fetchLatest = async () => {
+      setMyAppLoading(true);
+      try {
+        const latest = await ExecutiveApplicationService.fetchMyLatestApplication(supaUser);
+        if (!cancelled && latest) {
+          setPersistedApp(latest);
+          // If user already has an application, show its status card
+          // Prefer community applications for status display; but show any latest
+          const canonical = latest.status;
+          if (canonical === 'pending' || canonical === 'approved' || canonical === 'rejected') {
+            // set vertical for display
+            const v = executiveVerticals.find(x => x.id === latest.vertical) || null;
+            if (v) setSelectedVertical(v);
+            // also fill form fields from DB for display consistency
+            if (!fullName) setFullName(latest.fullName || latest.applicantName || '');
+            if (!mobileNumber) setMobileNumber(latest.phone || latest.applicantPhone || '');
+            if (!gmailAddress) setGmailAddress(latest.email || latest.applicantEmail || '');
+            // Only auto-show status if user hasn't actively started a new flow (step===1)
+            // If they are mid-flow (step 2/3) don't overwrite
+            if (step === 1) setStep(4);
+          }
+        }
+      } catch (e) {
+        console.warn('[JoinExecutive] fetchMyLatest failed', e?.message || e);
+      } finally {
+        if (!cancelled) setMyAppLoading(false);
+      }
+    };
+    fetchLatest();
+    return () => { cancelled = true; };
+  }, [supaUser?.id]);
 
   const handleSelectVertical = (v) => {
     setSelectedVertical(v);
@@ -38,7 +80,6 @@ export const JoinExecutivePage = () => {
   const handleSendOtp = async (e) => {
     e.preventDefault();
     if (!fullName.trim() || !mobileNumber.trim() || !gmailAddress.trim()) { alert('Fill all fields'); return; }
-    // For Community & Society Services, verify via Email OTP (mobile still collected for contact but not for OTP)
     if (isCommunity) {
       if (!isValidEmail(gmailAddress)) { alert('Enter valid email address'); return; }
     } else {
@@ -48,7 +89,6 @@ export const JoinExecutivePage = () => {
     setOtpError('');
     setOtpDigits(['','','','','','']);
     if (isCommunity) {
-      // Hardened Email OTP: service generates, hashes, and stores OTP internally
       setResendCountdown(30);
       try {
         const res = await sendEmailOtp(gmailAddress, fullName);
@@ -56,7 +96,6 @@ export const JoinExecutivePage = () => {
         if (res.success) {
           setStep(3);
         } else {
-          // Production failure: controlled message, stay on form, do not proceed
           setOtpError(res.error || 'Unable to send verification email. Please try again.');
           setResendCountdown(0);
         }
@@ -88,7 +127,7 @@ export const JoinExecutivePage = () => {
   };
   const handleKeyDown = (i,e) => { if(e.key==='Backspace' && !otpDigits[i] && i>0) refs.current[i-1].focus(); };
 
-  const handleVerify = (e) => {
+  const handleVerify = async (e) => {
     e.preventDefault();
     const entered = otpDigits.join('');
     const result = isCommunity
@@ -96,16 +135,29 @@ export const JoinExecutivePage = () => {
       : verifyMobileOtp(entered, generatedOtp, otpExpiresAt);
     if (!result.valid) { setOtpError(result.error); return; }
     setIsVerifying(true);
-    setTimeout(() => {
-      const { requiresApproval } = registerExecutive({ fullName, mobileNumber, gmailAddress, executiveVertical: selectedVertical.id });
-            setIsVerifying(false);
-      if (requiresApproval) {
-        // stay on page show pending message
+    try {
+      const res = await registerExecutive({ fullName, mobileNumber, gmailAddress, executiveVertical: selectedVertical.id });
+      // res.app may contain canonicalStatus from DB; also set persistedApp to DB row if available
+      if (res.app) {
+        // Try to fetch latest from DB to get canonical status (in case register used fallback)
+        if (isSupabaseConfigured() && supaUser?.id) {
+          try {
+            const latest = await ExecutiveApplicationService.fetchMyLatestApplication(supaUser);
+            if (latest) setPersistedApp(latest);
+            else setPersistedApp({ ...res.app, status: res.app.canonicalStatus || (res.requiresApproval ? 'pending' : 'approved'), vertical: selectedVertical.id, fullName, phone: mobileNumber, email: gmailAddress });
+          } catch { setPersistedApp({ ...res.app, status: res.app.canonicalStatus || (res.requiresApproval ? 'pending' : 'approved') }); }
+        } else {
+          setPersistedApp({ ...res.app, status: res.app.canonicalStatus || (res.requiresApproval ? 'pending' : 'approved') });
+        }
+      }
+      if (res.requiresApproval) {
         setStep(4);
       } else {
         setActiveTab('home');
       }
-    }, 500);
+    } catch (err) {
+      setOtpError(err?.message || 'Failed to submit application');
+    } finally { setIsVerifying(false); }
   };
 
   const handleResend = async () => {
@@ -128,19 +180,82 @@ export const JoinExecutivePage = () => {
     setSendInfo(res);
   };
 
+  // Determine which status to display in step 4 — prefer persistedApp (DB source of truth)
+  const displayStatus = (() => {
+    if (persistedApp?.status) return String(persistedApp.status).toLowerCase();
+    // fallback: if no DB app but we just submitted, infer pending for community
+    if (selectedVertical?.id === 'community') return 'pending';
+    return 'approved';
+  })();
+
+  const isPending = displayStatus === 'pending' || displayStatus === 'pending_approval';
+  const isApproved = displayStatus === 'approved' || displayStatus === 'active';
+  const isRejected = displayStatus === 'rejected';
+
   if (step === 4) {
-    return (
-      <div className="max-w-2xl mx-auto py-16 text-center space-y-6">
-        <div className="w-20 h-20 rounded-full bg-amber-100 flex items-center justify-center mx-auto"><Clock className="w-10 h-10 text-amber-600" /></div>
-        <h1 className="text-2xl font-extrabold font-display">Application Submitted — Awaiting Approval</h1>
-        <p className="text-sm text-slate-600">Your Community & Society Executive application is pending Society Admin approval. You will be activated once approved.</p>
-        <div className="p-4 rounded-2xl bg-slate-50 border text-xs text-left">
-          <div><strong>Vertical:</strong> {selectedVertical?.title}</div>
-          <div><strong>Name:</strong> {fullName} — <strong>Phone:</strong> {mobileNumber}</div>
+    // PENDING
+    if (isPending) {
+      return (
+        <div className="max-w-2xl mx-auto py-16 text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-amber-100 flex items-center justify-center mx-auto"><Clock className="w-10 h-10 text-amber-600" /></div>
+          <h1 className="text-2xl font-extrabold font-display">Application Submitted — Awaiting Approval</h1>
+          <p className="text-sm text-slate-600">Your Community & Society Executive application is pending Society Admin approval. You will be activated once approved.</p>
+          <div className="p-4 rounded-2xl bg-slate-50 border text-xs text-left space-y-1">
+            <div><strong>Vertical:</strong> {selectedVertical?.title || persistedApp?.vertical || 'Community & Society Services'}</div>
+            <div><strong>Name:</strong> {persistedApp?.fullName || persistedApp?.applicantName || fullName} — <strong>Phone:</strong> {persistedApp?.phone || persistedApp?.applicantPhone || mobileNumber}</div>
+            <div><strong>Email:</strong> {persistedApp?.email || persistedApp?.applicantEmail || gmailAddress}</div>
+            {persistedApp?.services?.length ? <div><strong>Services:</strong> {persistedApp.services.join(', ')}</div> : null}
+            <div><strong>Status:</strong> <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">PENDING</span></div>
+            <div><strong>Submitted:</strong> {persistedApp?.createdAt ? new Date(persistedApp.createdAt).toLocaleString() : new Date().toLocaleString()}</div>
+          </div>
+          <div className="flex gap-3 justify-center">
+            <button onClick={()=>setActiveTab('home')} className="px-6 py-3 rounded-xl bg-brand-900 text-white text-xs font-bold">Back to Home</button>
+            {isSupabaseConfigured() && supaUser && (
+              <button onClick={async()=>{ try{ const latest=await ExecutiveApplicationService.fetchMyLatestApplication(supaUser); if(latest) setPersistedApp(latest);}catch{}}} className="px-6 py-3 rounded-xl border border-slate-200 bg-white text-xs font-bold">Refresh Status</button>
+            )}
+          </div>
+          {myAppLoading && <p className="text-[11px] text-slate-400">Checking approval status…</p>}
         </div>
-        <button onClick={()=>setActiveTab('home')} className="px-6 py-3 rounded-xl bg-brand-900 text-white text-xs font-bold">Back to Home</button>
-      </div>
-    );
+      );
+    }
+    // APPROVED
+    if (isApproved) {
+      return (
+        <div className="max-w-2xl mx-auto py-16 text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mx-auto"><CheckCircle2 className="w-10 h-10 text-emerald-600" /></div>
+          <h1 className="text-2xl font-extrabold font-display">Application Approved</h1>
+          <p className="text-sm text-slate-600">Your Community & Society Executive application has been approved. You now have access to society orders.</p>
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-left space-y-1">
+            <div><strong>Vertical:</strong> {selectedVertical?.title || persistedApp?.vertical || 'Community & Society Services'}</div>
+            <div><strong>Name:</strong> {persistedApp?.fullName || fullName} — <strong>Phone:</strong> {persistedApp?.phone || mobileNumber}</div>
+            <div><strong>Status:</strong> <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">APPROVED</span></div>
+            {persistedApp?.approvedAt && <div><strong>Approved:</strong> {new Date(persistedApp.approvedAt).toLocaleString()}</div>}
+          </div>
+          <button onClick={()=>setActiveTab('home')} className="px-6 py-3 rounded-xl bg-brand-900 text-white text-xs font-bold">Go to Dashboard</button>
+        </div>
+      );
+    }
+    // REJECTED
+    if (isRejected) {
+      return (
+        <div className="max-w-2xl mx-auto py-16 text-center space-y-6">
+          <div className="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center mx-auto"><XCircle className="w-10 h-10 text-red-600" /></div>
+          <h1 className="text-2xl font-extrabold font-display">Application Rejected</h1>
+          <p className="text-sm text-slate-600">Your Community & Society Executive application was not approved.</p>
+          <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-left space-y-1">
+            <div><strong>Vertical:</strong> {selectedVertical?.title || persistedApp?.vertical || 'Community & Society Services'}</div>
+            <div><strong>Name:</strong> {persistedApp?.fullName || fullName} — <strong>Phone:</strong> {persistedApp?.phone || mobileNumber}</div>
+            <div><strong>Status:</strong> <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-bold">REJECTED</span></div>
+            {persistedApp?.rejectionReason && <div><strong>Reason:</strong> {persistedApp.rejectionReason}</div>}
+            {persistedApp?.createdAt && <div><strong>Submitted:</strong> {new Date(persistedApp.createdAt).toLocaleString()}</div>}
+          </div>
+          <div className="flex gap-3 justify-center">
+            <button onClick={()=>{ setStep(1); setPersistedApp(null); }} className="px-6 py-3 rounded-xl border border-slate-200 bg-white text-xs font-bold">Apply Again</button>
+            <button onClick={()=>setActiveTab('home')} className="px-6 py-3 rounded-xl bg-brand-900 text-white text-xs font-bold">Back to Home</button>
+          </div>
+        </div>
+      );
+    }
   }
 
   return (

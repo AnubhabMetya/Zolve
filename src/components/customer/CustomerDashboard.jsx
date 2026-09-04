@@ -46,6 +46,8 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
   const {
     currentUser,
     selectedLocation,
+    locationStatus,
+    locationError,
     setIsLocationModalOpen,
     serviceCategories,
     providers,
@@ -84,7 +86,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
   }, [savedAddresses]);
 
   const nearbyProviders = React.useMemo(() => {
-    if (!userCoords && !defaultSavedCoords) return providers;
+    if (!userCoords && !defaultSavedCoords) return [];
     return providers.filter(p => {
       if (!p.coords) return false;
       const dLive = userCoords ? haversineKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) : 999;
@@ -438,6 +440,30 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
       )}
 
       {/* 2b. LOCATION NOT SERVICEABLE — strict 50km from saved/live location */}
+      {locationStatus === 'detecting' && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 flex items-center gap-3 text-xs text-blue-800">
+          <Clock className="w-5 h-5 animate-spin" /> Detecting your location…
+        </div>
+      )}
+      {!userCoords && locationStatus !== 'detecting' && (
+        <div className="rounded-2xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50 border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-slate-600 text-white"><MapPin className="w-5 h-5" /></div>
+            <div>
+              <div className="text-sm font-bold text-slate-900">
+                {locationStatus === 'denied' ? 'Location access was denied.' : locationStatus === 'unavailable' ? 'Unable to detect your location.' : locationStatus === 'unsupported' ? 'Zolve is currently not available in this area.' : 'Location not set'}
+              </div>
+              <div className="text-xs text-slate-600">
+                {locationError || (locationStatus === 'unsupported' ? 'Your GPS is outside our 20-city 50km coverage. Choose a supported city.' : 'Choose location manually to see services within 50km.')}
+                {selectedLocation?.lat != null && <span className="font-mono ml-1">({selectedLocation.lat.toFixed(3)}, {selectedLocation.lng.toFixed(3)})</span>}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setIsLocationModalOpen(true)} className="px-4 py-2 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold shrink-0">
+            Choose location manually
+          </button>
+        </div>
+      )}
       {userCoords && !hasCoverage && (
         <div className="rounded-2xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-red-50 border-red-200">
           <div className="flex items-center gap-3">
@@ -449,7 +475,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                 Services not available in this area
               </div>
               <div className="text-xs text-red-700">
-                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'this location'}. Booking details are hidden outside 50km from your saved/live location.`}
+                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${selectedLocation?.name || 'this location'}. Booking details are hidden outside 50km from your saved/live location.`}
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Users, TrendingUp, AlertTriangle, CheckCircle2, Scale, MapPin, Award, Clock, Info } from 'lucide-react';
+import { Users, TrendingUp, AlertTriangle, CheckCircle2, Scale, MapPin, Award, Clock } from 'lucide-react';
 import { allocateWorkforce } from '../../services/workforceAllocationService.js';
 import { INITIAL_PROVIDERS, SERVICE_CATEGORIES, CITY_HUBS } from '../../data/mockData.js';
 
@@ -16,7 +16,7 @@ export const WorkforceAllocation = ({ providers = INITIAL_PROVIDERS, bookings = 
     return Array.from(s).sort();
   }, [forecastPredictions]);
 
-  const defaultCity = ALL_CITIES.includes('Bengaluru') ? 'Bengaluru' : ALL_CITIES[0];
+  const defaultCity = null;
   const defaultService = ALL_SERVICES.find(s => s.id === 'srv-plumb-01')?.id || ALL_SERVICES[0]?.id;
 
   const [selectedCity, setSelectedCity] = useState(defaultCity);
@@ -86,17 +86,12 @@ export const WorkforceAllocation = ({ providers = INITIAL_PROVIDERS, bookings = 
       </div>
 
       <div className="p-5 sm:p-6 space-y-5">
-        {/* Synthetic disclaimer */}
-        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
-          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <span>Forecast data is currently <strong>synthetic prototype data — not real customer bookings</strong>. Capacity and gap are explainable estimates for SIH demonstration.</span>
-        </div>
-
-        {/* Selectors */}
+        {/* Selectors — no Bengaluru default, must choose */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <label className="space-y-1">
             <span className="text-[11px] font-bold text-slate-600 uppercase">City (20 supported, 50 km radius)</span>
-            <select value={selectedCity} onChange={e => setSelectedCity(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+            <select value={selectedCity || ''} onChange={e => setSelectedCity(e.target.value || null)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+              <option value="" disabled>Select city</option>
               {ALL_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </label>
@@ -123,8 +118,11 @@ export const WorkforceAllocation = ({ providers = INITIAL_PROVIDERS, bookings = 
             <span className="text-[11px] font-bold text-slate-600 uppercase">Forecast Demand (override, else from predictions)</span>
             <input type="number" placeholder={forecastRow ? String(Math.round(forecastRow.predicted_booking_count)) : 'e.g. 5'} value={forecastDemandInput} onChange={e => setForecastDemandInput(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none" min="0" />
           </label>
-          <div className="text-xs text-slate-500 pt-6">Showing: <strong className="text-slate-900">{selectedCity}</strong> • {selectedService?.name} • {selectedDate}</div>
+          <div className="text-xs text-slate-500 pt-6">Showing: <strong className="text-slate-900">{selectedCity || 'Location not set'}</strong> • {selectedService?.name} • {selectedDate}</div>
         </div>
+        {!selectedCity && (
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 text-center">Select a city to view workforce allocation. No default city is assumed.</div>
+        )}
 
         {/* States: loading / no forecast / normal */}
         {!hasAnyForecast && forecastPredictions.length === 0 && providers.length === 0 ? (

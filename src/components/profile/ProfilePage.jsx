@@ -306,7 +306,7 @@ function AddressFormModal({ open, onClose, onSave, initial, gpsBusy }) {
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">Pin exact location (drag marker)</span>
               <span className="text-[11px] text-slate-500">{mapCoords ? `${mapCoords.lat.toFixed(5)}, ${mapCoords.lng.toFixed(5)}` : 'No pin yet'}</span>
             </div>
-            <MapView customerPos={mapCoords || { lat:12.9716, lng:77.5946 }} draggable onCustomerMove={handleMapMove} height="200px" />
+            <MapView customerPos={mapCoords || null} draggable onCustomerMove={handleMapMove} height="200px" />
             <p className="text-[10px] text-slate-400">Drag the blue pin to fine-tune. Coordinates saved with address for accurate service tracking.</p>
           </div>
         </div>
@@ -475,7 +475,6 @@ export const ProfilePage = () => {
             </div>
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">Saved Addresses <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-400">{addresses.length}</span></h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Swiggy / Zomato style — edit house, landmark, pincode or use current GPS</p>
             </div>
           </div>
           <button onClick={openAdd} className="px-4 py-2.5 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm">
@@ -487,7 +486,6 @@ export const ProfilePage = () => {
           <div className="p-10 text-center space-y-3">
             <div className="w-14 h-14 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center mx-auto"><Building2 className="w-7 h-7 text-orange-500" /></div>
             <h4 className="text-sm font-bold text-slate-900 dark:text-white">No saved address yet</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">Add your home or work address like Swiggy/Zomato — include flat, landmark & pincode. You can auto-detect current location or type manually.</p>
             <button onClick={openAdd} className="mt-2 px-5 py-2.5 rounded-xl bg-brand-900 text-white text-xs font-bold inline-flex items-center gap-1.5"><Navigation className="w-4 h-4" /> Use Current Location to Add</button>
           </div>
         ) : (

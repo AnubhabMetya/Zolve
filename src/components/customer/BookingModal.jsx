@@ -105,11 +105,11 @@ export const BookingModal = () => {
   const [selectedDate, setSelectedDate] = useState(() => getISTDateStr());
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
   const [selectedAddress, setSelectedAddress] = useState(
-    currentUser?.savedAddresses?.[0]?.addressLine || 'Flat 402, Sunshine Heights, 12th Main, Indiranagar, Bengaluru - 560038'
+    currentUser?.savedAddresses?.[0]?.addressLine || ''
   );
   const [customAddress, setCustomAddress] = useState('');
   const [isCustomAddress, setIsCustomAddress] = useState(false);
-  const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || { lat: 12.9784, lng: 77.6408 });
+  const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || null);
   const [gpsLoadingAddress, setGpsLoadingAddress] = useState(false);
   const [gpsAddrError, setGpsAddrError] = useState('');
   const [addrSearchResults, setAddrSearchResults] = useState([]);
@@ -251,14 +251,15 @@ export const BookingModal = () => {
     setIsRazorpayModalOpen(false);
     setBookingPhoneError('');
     setIsSavingPhone(false);
-    // Reset address to default saved address (so second booking doesn't inherit previous custom address)
+    // Reset address to default saved address (so second booking doesn't inherit previous custom address) — never Bengaluru fallback
     const def = currentUser?.savedAddresses?.find(a=>a.isDefault) || currentUser?.savedAddresses?.[0];
     if (def) {
       setSelectedAddress(def.addressLine || def.fullAddress);
       if (def.coords) setAddressCoords(def.coords);
+      else setAddressCoords(null);
     } else {
-      setSelectedAddress('Flat 402, Sunshine Heights, 12th Main, Indiranagar, Bengaluru - 560038');
-      setAddressCoords({ lat: 12.9784, lng: 77.6408 });
+      setSelectedAddress('');
+      setAddressCoords(null);
     }
     if (!bookingPrefill?.serviceName) {
       setServiceDescription('Circuit breaker tripping and spark near kitchen switchboard.');
@@ -395,8 +396,8 @@ export const BookingModal = () => {
         providerPhone: p.phone,
         providerTitle: p.title,
         isCoopMember: p.isCoopMember,
-        providerCoords: p.coords || { lat: 12.9716, lng: 77.5946 },
-        customerCoords: addressCoords,
+        providerCoords: p.coords || null,
+        customerCoords: addressCoords || null,
         customerPhone: effectivePhoneForBooking,
         serviceId: bookingPrefill?.serviceId || 'srv-user-selected',
         serviceName: bookingPrefill?.serviceName || p.title,
