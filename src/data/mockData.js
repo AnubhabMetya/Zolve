@@ -385,22 +385,29 @@ export const EXECUTIVE_VERTICALS = [
 export const BENGALURU_CENTER = { lat: 12.9716, lng: 77.5946 };
 
 // Pan-India city hubs for executive / corporate cooperative coverage (50 km service radius)
+// 20 supported cities per spec + Siliguri as additional prototype hub
 export const CITY_HUBS = [
-  { id: 'hub-delhi', city: 'Delhi', state: 'Delhi', lat: 28.6139, lng: 77.2090, pincode: '110001' },
-  { id: 'hub-gurgaon', city: 'Gurgaon', state: 'Haryana', lat: 28.4595, lng: 77.0266, pincode: '122001' },
+  { id: 'hub-delhi', city: 'Delhi NCR', state: 'Delhi', lat: 28.6139, lng: 77.2090, pincode: '110001' },
+  { id: 'hub-gurugram', city: 'Gurugram', state: 'Haryana', lat: 28.4595, lng: 77.0266, pincode: '122001' },
   { id: 'hub-mumbai', city: 'Mumbai', state: 'Maharashtra', lat: 19.0760, lng: 72.8777, pincode: '400001' },
+  { id: 'hub-bengaluru', city: 'Bengaluru', state: 'Karnataka', lat: 12.9716, lng: 77.5946, pincode: '560001' },
+  { id: 'hub-chennai', city: 'Chennai', state: 'Tamil Nadu', lat: 13.0827, lng: 80.2707, pincode: '600001' },
+  { id: 'hub-hyderabad', city: 'Hyderabad', state: 'Telangana', lat: 17.3850, lng: 78.4867, pincode: '500001' },
+  { id: 'hub-kolkata', city: 'Kolkata', state: 'West Bengal', lat: 22.5726, lng: 88.3639, pincode: '700001' },
   { id: 'hub-ahmedabad', city: 'Ahmedabad', state: 'Gujarat', lat: 23.0225, lng: 72.5714, pincode: '380001' },
   { id: 'hub-pune', city: 'Pune', state: 'Maharashtra', lat: 18.5204, lng: 73.8567, pincode: '411001' },
-  { id: 'hub-chennai', city: 'Chennai', state: 'Tamil Nadu', lat: 13.0827, lng: 80.2707, pincode: '600001' },
+  { id: 'hub-surat', city: 'Surat', state: 'Gujarat', lat: 21.1702, lng: 72.8311, pincode: '395001' },
   { id: 'hub-vizag', city: 'Visakhapatnam', state: 'Andhra Pradesh', lat: 17.6868, lng: 83.2185, pincode: '530001' },
+  { id: 'hub-coimbatore', city: 'Coimbatore', state: 'Tamil Nadu', lat: 11.0168, lng: 77.0555, pincode: '641001' },
+  { id: 'hub-vadodara', city: 'Vadodara', state: 'Gujarat', lat: 22.3072, lng: 73.1812, pincode: '390001' },
+  { id: 'hub-nagpur', city: 'Nagpur', state: 'Maharashtra', lat: 21.1458, lng: 79.0882, pincode: '440001' },
+  { id: 'hub-jaipur', city: 'Jaipur', state: 'Rajasthan', lat: 26.9124, lng: 75.7873, pincode: '302001' },
+  { id: 'hub-lucknow', city: 'Lucknow', state: 'Uttar Pradesh', lat: 26.8467, lng: 80.9462, pincode: '226001' },
+  { id: 'hub-kochi', city: 'Kochi', state: 'Kerala', lat: 9.9312, lng: 76.2673, pincode: '682001' },
   { id: 'hub-indore', city: 'Indore', state: 'Madhya Pradesh', lat: 22.7196, lng: 75.8577, pincode: '452001' },
   { id: 'hub-patna', city: 'Patna', state: 'Bihar', lat: 25.5941, lng: 85.1376, pincode: '800001' },
-  { id: 'hub-lucknow', city: 'Lucknow', state: 'Uttar Pradesh', lat: 26.8467, lng: 80.9462, pincode: '226001' },
-  { id: 'hub-kolkata', city: 'Kolkata', state: 'West Bengal', lat: 22.5726, lng: 88.3639, pincode: '700001' },
+  { id: 'hub-bhopal', city: 'Bhopal', state: 'Madhya Pradesh', lat: 23.2599, lng: 77.4126, pincode: '462001' },
   { id: 'hub-siliguri', city: 'Siliguri', state: 'West Bengal', lat: 26.7271, lng: 88.3953, pincode: '734001' },
-  { id: 'hub-bengaluru', city: 'Bengaluru', state: 'Karnataka', lat: 12.9716, lng: 77.5946, pincode: '560001' },
-  { id: 'hub-hyderabad', city: 'Hyderabad', state: 'Telangana', lat: 17.3850, lng: 78.4867, pincode: '500001' },
-  { id: 'hub-jaipur', city: 'Jaipur', state: 'Rajasthan', lat: 26.9124, lng: 75.7873, pincode: '302001' },
 ];
 
 export const INITIAL_PROVIDERS = [
@@ -6311,6 +6318,83 @@ export const INITIAL_PROVIDERS = [
     recentReviews: []
   },
 ];
+
+// --- Prototype synthetic provider generation for 20-city coverage (deterministic, clearly synthetic) ---
+// Ensures every supported city has ≥10 qualified providers per service (20 cities ×14 services ×10 = ~2800 assignments).
+// Synthetic members are prototype cooperative members, not real identities. Existing provider IDs remain source of truth.
+(() => {
+  const SYNTHETIC_FIRST = ['Aarav','Vivaan','Aditya','Arjun','Sai','Reyansh','Ayaan','Krishna','Ishaan','Rohan','Kabir','Anaya','Diya','Pooja','Neha','Priya','Sneha','Kavya','Ira','Meera','Riya','Sahil','Aryan','Dev','Om','Harsh','Nikhil','Suresh','Raj','Vikram','Anil','Sunil','Kiran','Mohan','Lakshman','Ramesh','Suresh','Sanjay','Amit','Rahul'];
+  const SYNTHETIC_LAST = ['Sharma','Verma','Patel','Singh','Kumar','Reddy','Nair','Desai','Mehta','Joshi','Gupta','Iyer','Menon','Rao','Das','Kapoor','Malhotra','Chopra','Pillai','Naidu','Khan','Ali','Sheikh','Yadav','Choudhury','Bose','Ghosh','Kapoor','Tiwari','Mishra'];
+  const ALL_SERVICES = SERVICE_CATEGORIES.flatMap(c => c.services);
+  // Deterministic hash
+  function hashStr(s) { let h = 0; for (let i=0;i<s.length;i++) h = ((h<<5)-h + s.charCodeAt(i))|0; return Math.abs(h); }
+  function citySlug(city){ return city.toLowerCase().replace(/[^a-z0-9]/g,'-').replace(/-+/g,'-'); }
+  function serviceSlug(srvId){ return srvId.replace('srv-',''); }
+  for (const hub of CITY_HUBS) {
+    const city = hub.city;
+    const slugCity = citySlug(city);
+    for (const srv of ALL_SERVICES) {
+      const slugSrv = serviceSlug(srv.id);
+      // Count existing providers for this city+service (location contains city AND serviceCategories/skills/title contains service)
+      const existing = INITIAL_PROVIDERS.filter(p => {
+        const loc = (p.location||'').toLowerCase();
+        if (!loc.includes(city.toLowerCase().split(' ')[0])) {
+          // For Delhi NCR, match Delhi or NCR
+          if (city === 'Delhi NCR' && !(loc.includes('delhi') || loc.includes('gurugram') || loc.includes('gurgaon') || loc.includes('ncr'))) return false;
+          else if (city !== 'Delhi NCR' && !loc.includes(city.toLowerCase())) return false;
+        }
+        const qual = [...(p.serviceCategories||[]), ...(p.skills||[]), p.title||''].join(' ').toLowerCase();
+        const srvNameLower = srv.name.toLowerCase();
+        const subLower = srv.subcategory.toLowerCase();
+        // Match if service name or subcategory appears in provider qual
+        return qual.includes(srvNameLower) || qual.includes(subLower) || p.serviceCategories?.some(c=> c.toLowerCase()===srvNameLower || c.toLowerCase()===subLower);
+      }).length;
+      const needed = Math.max(0, 10 - existing);
+      for (let i=0;i<needed;i++) {
+        const idx = existing + i + 1;
+        const h = hashStr(`${city}-${srv.id}-${idx}`);
+        const first = SYNTHETIC_FIRST[h % SYNTHETIC_FIRST.length];
+        const last = SYNTHETIC_LAST[(h>>8) % SYNTHETIC_LAST.length];
+        const name = `${first} ${last}`;
+        const id = `prov-synthetic-${slugCity}-${slugSrv}-${String(idx).padStart(2,'0')}`;
+        // Avoid duplicate id
+        if (INITIAL_PROVIDERS.some(p=> p.id===id)) continue;
+        const offsetLat = ((h % 100)/1000 - 0.05) * 0.6; // ±0.03 deg ~ ±3km
+        const offsetLng = (((h>>7)%100)/1000 - 0.05) * 0.6;
+        const rating = 4.5 + (h % 45)/100; // 4.50-4.94
+        const ratingCount = 20 + (h % 200);
+        const completedJobs = 50 + (h % 400);
+        const experienceYears = 2 + (h % 9);
+        const basePrice = srv.basePrice;
+        INITIAL_PROVIDERS.push({
+          id,
+          name,
+          title: `${srv.name} — ${city} (Prototype)`,
+          rating: Math.round(rating*100)/100,
+          ratingCount,
+          completedJobs,
+          experienceYears,
+          avatar: `https://images.unsplash.com/photo-${1500000000000 + (h% 100000)}?w=300&auto=format&fit=crop&q=80`,
+          phone: `+91 9${String(800000000 + (h%100000000)).padStart(9,'0')}`,
+          email: `${slugCity}.${slugSrv}.${String(idx).padStart(2,'0')}@zolve-coop.org`,
+          location: `${city} Hub — 50km coverage`,
+          coords: { lat: hub.lat + offsetLat, lng: hub.lng + offsetLng },
+          basePrice,
+          startingPrice: basePrice,
+          availability: "Available Today",
+          isCoopMember: true,
+          coopBadge: "Cooperative Member — Prototype",
+          coopDividendScore: "Prototype Tier",
+          verifications: { identity: true, skill: true, phone: true, background: true, coopMember: true },
+          serviceCategories: [srv.name, srv.subcategory],
+          skills: [srv.name],
+          bio: `Synthetic prototype cooperative member for ${srv.name} in ${city} (within 50km of ${hub.lat.toFixed(2)},${hub.lng.toFixed(2)}). Not a real person — for SIH prototype coverage.`,
+          recentReviews: []
+        });
+      }
+    }
+  }
+})();
 
 export const INITIAL_BOOKINGS = [
   {

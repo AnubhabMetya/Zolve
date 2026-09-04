@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { sendMobileOtp, verifyMobileOtp, generateOtp, isValidIndianMobile } from '../../services/otpService';
+import { sendMobileOtp, verifyMobileOtp, sendEmailOtp, verifyEmailOtp, generateOtp, isValidIndianMobile, isValidEmail } from '../../services/otpService';
 import { Home, HeartHandshake, Building2, Send, CheckCircle2, AlertCircle, Phone, Mail, User, ArrowRight, Clock, ShieldCheck } from 'lucide-react';
 
 const iconMap = { Home, HeartHandshake, Building2 };
@@ -34,15 +34,41 @@ export const JoinExecutivePage = () => {
     setStep(2);
   };
 
+  const isCommunity = selectedVertical?.id === 'community';
   const handleSendOtp = async (e) => {
     e.preventDefault();
     if (!fullName.trim() || !mobileNumber.trim() || !gmailAddress.trim()) { alert('Fill all fields'); return; }
-    if (!isValidIndianMobile(mobileNumber)) { alert('Enter valid 10-digit Indian mobile'); return; }
+    // For Community & Society Services, verify via Email OTP (mobile still collected for contact but not for OTP)
+    if (isCommunity) {
+      if (!isValidEmail(gmailAddress)) { alert('Enter valid email address'); return; }
+    } else {
+      if (!isValidIndianMobile(mobileNumber)) { alert('Enter valid 10-digit Indian mobile'); return; }
+    }
     setIsSending(true);
     setOtpError('');
+    setOtpDigits(['','','','','','']);
+    if (isCommunity) {
+      // Hardened Email OTP: service generates, hashes, and stores OTP internally
+      setResendCountdown(30);
+      try {
+        const res = await sendEmailOtp(gmailAddress, fullName);
+        setSendInfo(res);
+        if (res.success) {
+          setStep(3);
+        } else {
+          // Production failure: controlled message, stay on form, do not proceed
+          setOtpError(res.error || 'Unable to send verification email. Please try again.');
+          setResendCountdown(0);
+        }
+      } catch (err) {
+        setSendInfo({ fallback:true, error: 'Unable to send verification email. Please try again.' });
+        setOtpError('Unable to send verification email. Please try again.');
+        setResendCountdown(0);
+      } finally { setIsSending(false); }
+      return;
+    }
     const otp = generateOtp();
     setGeneratedOtp(otp);
-    setOtpDigits(['','','','','','']);
     setOtpExpiresAt(Date.now() + 5*60*1000);
     setResendCountdown(30);
     try {
@@ -65,7 +91,9 @@ export const JoinExecutivePage = () => {
   const handleVerify = (e) => {
     e.preventDefault();
     const entered = otpDigits.join('');
-    const result = verifyMobileOtp(entered, generatedOtp, otpExpiresAt);
+    const result = isCommunity
+      ? verifyEmailOtp(gmailAddress, entered)
+      : verifyMobileOtp(entered, generatedOtp, otpExpiresAt);
     if (!result.valid) { setOtpError(result.error); return; }
     setIsVerifying(true);
     setTimeout(() => {
@@ -82,10 +110,20 @@ export const JoinExecutivePage = () => {
 
   const handleResend = async () => {
     if (resendCountdown>0) return;
+    setOtpError('');
+    setResendCountdown(30);
+    if (isCommunity) {
+      const res = await sendEmailOtp(gmailAddress, fullName);
+      setSendInfo(res);
+      if (!res.success) {
+        setOtpError(res.error || 'Unable to send verification email. Please try again.');
+        setResendCountdown(0);
+      }
+      return;
+    }
     const otp = generateOtp();
     setGeneratedOtp(otp);
     setOtpExpiresAt(Date.now()+5*60*1000);
-    setResendCountdown(30);
     const res = await sendMobileOtp(mobileNumber, otp, fullName);
     setSendInfo(res);
   };
@@ -109,7 +147,7 @@ export const JoinExecutivePage = () => {
     <div className="pb-16 space-y-8">
       <div className="rounded-3xl bg-gradient-to-br from-brand-900 via-brand-950 to-coop-950 text-white p-8">
         <h1 className="text-3xl font-extrabold font-display">Join as Executive</h1>
-        <p className="text-sm text-slate-300 mt-2 max-w-2xl">Choose your vertical. Household (8 services), Personal & Family (3), or Community & Society (3 — requires Society Admin approval). Mobile OTP verification required.</p>
+        <p className="text-sm text-slate-300 mt-2 max-w-2xl">Choose your vertical. Household (8 services) & Personal & Family (3) use Mobile OTP — Community & Society (3 — requires Society Admin approval) uses Email OTP. OTP verification required.</p>
       </div>
 
       {step === 1 && (
@@ -139,15 +177,16 @@ export const JoinExecutivePage = () => {
           <div><label className="text-xs font-bold">Full Name</label><div className="relative mt-1"><User className="w-4 h-4 absolute left-3 top-3 text-slate-400" /><input required value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="e.g. Arjun Patel" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs" /></div></div>
           <div><label className="text-xs font-bold">Mobile Number (10-digit)</label><div className="relative mt-1"><Phone className="w-4 h-4 absolute left-3 top-3 text-slate-400" /><input required value={mobileNumber} onChange={e=>setMobileNumber(e.target.value)} placeholder="98765 43210" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs" /></div></div>
           <div><label className="text-xs font-bold">Email</label><div className="relative mt-1"><Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" /><input required type="email" value={gmailAddress} onChange={e=>setGmailAddress(e.target.value)} placeholder="you@gmail.com" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs" /></div></div>
-          <button type="submit" disabled={isSending} className="w-full py-3 rounded-xl bg-brand-900 text-white text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60"><Send className="w-4 h-4" />{isSending? 'Sending OTP via SMS...':'Send Mobile OTP'}</button>
-          <p className="text-[10px] text-slate-400 text-center">True SMS via MSG91/n8n. Check SMS for OTP.</p>
+          <button type="submit" disabled={isSending} className="w-full py-3 rounded-xl bg-brand-900 text-white text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-60"><Send className="w-4 h-4" />{isSending? (isCommunity ? 'Sending OTP via Email...' : 'Sending OTP via SMS...') : (isCommunity ? 'Send Email OTP' : 'Send Mobile OTP')}</button>
+          {otpError && <div className="p-2 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex gap-2"><AlertCircle className="w-4 h-4 shrink-0" />{otpError}</div>}
+          <p className="text-[10px] text-slate-400 text-center">{isCommunity ? 'OTP will be sent to your email via n8n. Check inbox (and spam) for OTP.' : 'True SMS via MSG91/n8n. Check SMS for OTP.'}</p>
         </form>
       )}
 
       {step === 3 && (
         <form onSubmit={handleVerify} className="max-w-xl mx-auto bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 space-y-5">
-          <h2 className="text-lg font-bold">Enter 6-Digit Mobile OTP</h2>
-          <p className="text-xs text-slate-500">Sent to <strong>{mobileNumber}</strong> {sendInfo?.via && <span className="text-[10px] text-slate-400">({sendInfo.via})</span>}</p>
+          <h2 className="text-lg font-bold">Enter 6-Digit {isCommunity ? 'Email' : 'Mobile'} OTP</h2>
+          <p className="text-xs text-slate-500">Sent to <strong>{isCommunity ? gmailAddress : mobileNumber}</strong> {sendInfo?.via && <span className="text-[10px] text-slate-400">({sendInfo.via})</span>}</p>
           {sendInfo?.fallback && <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">{sendInfo.error}</div>}
           <div className="flex gap-2 justify-between">
             {otpDigits.map((d,i)=> <input key={i} ref={el=>refs.current[i]=el} value={d} onChange={e=>handleOtpChange(i,e.target.value)} onKeyDown={e=>handleKeyDown(i,e)} maxLength={1} className="w-12 h-14 text-center text-xl font-mono font-bold rounded-xl border-2 border-slate-200 focus:border-brand-600 focus:outline-none bg-slate-50" />)}

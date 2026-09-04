@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../../context/AppContext';
 import { MapPin, Search, Check, X, Building, Navigation, Loader2, AlertCircle } from 'lucide-react';
 import { getCurrentPosition, reverseGeocode, isGeolocationSupported, searchPlaces, searchByPincode, isValidIndianPincode } from '../../services/locationService';
@@ -57,8 +58,6 @@ export const LocationModal = () => {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  if (!isLocationModalOpen) return null;
-
   const filtered = POPULAR_AREAS.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
   // avoid duplicating local popular inside remote results
   const filteredNames = new Set(filtered.map(f => f.name.toLowerCase()));
@@ -113,8 +112,25 @@ export const LocationModal = () => {
   const selectedName = typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+    <AnimatePresence>
+      {isLocationModalOpen && (
+        <motion.div
+          key="location-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+          className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[5.5rem] sm:pt-20 bg-slate-900/60 backdrop-blur-sm"
+          onClick={() => setIsLocationModalOpen(false)}
+        >
+          <motion.div
+            key="location-panel"
+            initial={{ y: -90, opacity: 0, scale: 0.98 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: -90, opacity: 0, scale: 0.98 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 340, mass: 0.9 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden will-change-transform">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-2">
@@ -271,8 +287,10 @@ export const LocationModal = () => {
               <p className="text-xs text-slate-500 text-center py-4">No matching popular area. Type to search any city in India.</p>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+          </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

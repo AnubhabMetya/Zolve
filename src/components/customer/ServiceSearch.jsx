@@ -17,6 +17,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { SERVICE_RADIUS_KM } from '../../services/locationService';
+import { SemanticServiceMatcher } from '../ai/SemanticServiceMatcher';
 
 export const ServiceSearch = ({ initialSearch = '' }) => {
   const {
@@ -180,6 +181,23 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
           </div>
         </div>
       </div>
+
+      {/* FEATURE 1 — SEMANTIC SERVICE MATCHING (client-side TF-IDF, no API key, embeddings precomputed) */}
+      <SemanticServiceMatcher onSelectServiceName={(name) => setSearchQuery(name)} />
+
+      {/* Local availability summary — 5-10 executive requirement, never pad with distant providers */}
+      {hasExplicitLocation && filteredProviders.length > 0 && filteredProviders.length < 5 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 flex items-center gap-2 text-xs text-amber-800">
+          <MapPin className="w-4 h-4 text-amber-600" />
+          <span>Only {filteredProviders.length} qualified executives are currently available nearby<span className="hidden sm:inline"> in {selectedLocationName}</span> — within {SERVICE_RADIUS_KM}km. Correctness over quantity.</span>
+        </div>
+      )}
+      {hasExplicitLocation && filteredProviders.length >= 5 && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 flex items-center gap-2 text-xs text-emerald-800">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <span>{filteredProviders.length} qualified executives available near {selectedLocationName} — showing local candidates within {SERVICE_RADIUS_KM}km. {filteredProviders.length > 10 ? 'Top local matches ranked; distant cities excluded.' : ''}</span>
+        </div>
+      )}
 
       {filteredProviders.length === 0 && hasExplicitLocation && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 flex flex-col sm:flex-row items-center justify-between gap-3">

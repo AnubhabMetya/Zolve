@@ -1,0 +1,54 @@
+{
+  "model_type": "XGBoostRegressor",
+  "random_seed": 42,
+  "n_estimators": 500,
+  "max_depth": 8,
+  "learning_rate": 0.05,
+  "input_csv": "data/synthetic_demand_features.csv",
+  "target": "booking_count",
+  "features": [
+    "lag_1_day",
+    "lag_7_day",
+    "rolling_7_day_mean",
+    "rolling_14_day_mean",
+    "day_of_week",
+    "is_weekend",
+    "month",
+    "day_of_month",
+    "city",
+    "service_id"
+  ],
+  "categorical_features": [
+    "city",
+    "service_id",
+    "day_of_week"
+  ],
+  "numeric_features": [
+    "lag_1_day",
+    "lag_7_day",
+    "rolling_7_day_mean",
+    "rolling_14_day_mean",
+    "is_weekend",
+    "month",
+    "day_of_month"
+  ],
+  "handling_missing_lag": "dropped rows where lag_1_day/lag_7_day/rolling_7_day_mean/rolling_14_day_mean is NaN (first 14 days per city/service) without imputation to avoid leakage",
+  "encoding": "OneHotEncoder(handle_unknown='ignore') for city/service_id/day_of_week, passthrough numeric",
+  "train_rows": 36960,
+  "test_rows": 9520,
+  "train_date_range": [
+    "2026-03-21",
+    "2026-07-30"
+  ],
+  "test_date_range": [
+    "2026-07-31",
+    "2026-09-02"
+  ],
+  "train_dates_count": 132,
+  "test_dates_count": 34,
+  "mae": 0.739970461974124,
+  "rmse": 1.2097520345062622,
+  "mape": 12.72615811126151,
+  "synthetic_disclaimer": "Synthetic prototype demand data \u2014 evaluation does not represent real Zolve production accuracy.",
+  "time_based_split": "older dates -> training, newest dates -> testing, never randomized"
+}

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { classifyServiceQuery } from '../../services/aiEngine';
 import { ImageServiceDetector } from '../ai/ImageServiceDetector';
+import { SemanticServiceMatcher } from '../ai/SemanticServiceMatcher';
 import { haversineKm, SERVICE_RADIUS_KM } from '../../services/locationService';
 
 const fadeInUp = {
@@ -341,6 +342,15 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
         transition={{ delay: 0.55, duration: 0.4 }}
       >
         <ImageServiceDetector />
+      </motion.div>
+
+      {/* 1c. SEMANTIC SERVICE MATCHING — Feature 1 (embeddings precomputed, no API key) */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.56, duration: 0.4 }}
+      >
+        <SemanticServiceMatcher onSelectServiceName={(name) => onOpenSearchWithCategory(name)} />
       </motion.div>
 
       {/* 2. UPCOMING / ACTIVE BOOKINGS WIDGET */}

@@ -3,7 +3,7 @@
 // Triggers n8n cloud webhook endpoints or simulates deterministic execution
 // ====================================================================
 
-const N8N_BASE_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || null;
+const N8N_BASE_URL = (import.meta?.env?.VITE_N8N_WEBHOOK_URL) || null;
 
 // Realtime n8n execution event listeners for developer & admin inspection
 const workflowListeners = new Set();

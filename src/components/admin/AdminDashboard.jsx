@@ -17,6 +17,10 @@ import {
   Search
 } from 'lucide-react';
 import { getAdminDemandForecast, getFraudAnomalyFlags } from '../../services/aiEngine';
+import { WorkforceAllocation } from '../ai/WorkforceAllocation';
+import { TrustAnomalyDashboard } from '../ai/TrustAnomalyDashboard';
+import { EmergencyDispatch } from '../ai/EmergencyDispatch';
+import { loadForecastPredictions } from '../../services/aiDataLoader.js';
 
 export const AdminDashboard = () => {
   const {
@@ -29,8 +33,11 @@ export const AdminDashboard = () => {
     addNotification
   } = useApp();
 
-  const [activeAdminTab, setActiveAdminTab] = useState('overview'); // 'overview' | 'kyc' | 'disputes' | 'proposals' | 'ai_demand'
+  const [activeAdminTab, setActiveAdminTab] = useState('overview'); // 'overview' | 'kyc' | 'disputes' | 'proposals' | 'ai_demand' | 'workforce' | 'trust' | 'emergency'
   const [isNewProposalModalOpen, setIsNewProposalModalOpen] = useState(false);
+  const [forecastPredictions, setForecastPredictions] = useState([]);
+  const [forecastLoading, setForecastLoading] = useState(true);
+  const [forecastError, setForecastError] = useState(null);
 
   // New Proposal state
   const [newPropTitle, setNewPropTitle] = useState('');
@@ -40,6 +47,25 @@ export const AdminDashboard = () => {
 
   const demandForecast = getAdminDemandForecast();
   const anomalyFlags = getFraudAnomalyFlags();
+
+  // Async load forecast predictions (cached, out of main bundle)
+  React.useEffect(() => {
+    let cancelled = false;
+    loadForecastPredictions()
+      .then((data) => {
+        if (!cancelled) {
+          setForecastPredictions(data);
+          setForecastLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setForecastError(err?.message || 'Failed to load forecast');
+          setForecastLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Handle Proposal Submission
   const handleCreateProposal = (e) => {
@@ -89,6 +115,9 @@ export const AdminDashboard = () => {
           { key: 'kyc', label: `Provider KYC Verification Queue (${providers.length})` },
           { key: 'disputes', label: `Trust & Safety Disputes (${supportTickets.length})` },
           { key: 'ai_demand', label: 'AI Demand Prediction & Fraud Monitor' },
+          { key: 'workforce', label: 'Workforce Allocation (Stage 1)' },
+          { key: 'trust', label: 'Trust & Safety (Anomaly)' },
+          { key: 'emergency', label: 'Emergency Dispatch' },
           { key: 'proposals', label: `Governance Proposals (${proposals.length})` }
         ].map((tab) => (
           <button
@@ -334,6 +363,35 @@ export const AdminDashboard = () => {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB 5: WORKFORCE ALLOCATION (Stage 1) — AI Feature 4 */}
+      {activeAdminTab === 'workforce' && (
+        <div className="space-y-6 animate-in fade-in">
+          {forecastLoading ? (
+            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center text-sm text-slate-500">Loading forecast predictions…</div>
+          ) : forecastError ? (
+            <div className="p-6 rounded-2xl bg-red-50 border border-red-200 text-center text-sm text-red-600">Failed to load forecast: {forecastError}</div>
+          ) : !forecastPredictions.length ? (
+            <div className="p-6 rounded-2xl bg-amber-50 border border-amber-200 text-center text-sm text-amber-700">No forecast data available — empty dataset.</div>
+          ) : (
+            <WorkforceAllocation providers={providers} bookings={bookings} forecastPredictions={forecastPredictions} />
+          )}
+        </div>
+      )}
+
+      {/* TAB 6: TRUST & ANOMALY (Stage 1) — AI Feature 5 */}
+      {activeAdminTab === 'trust' && (
+        <div className="space-y-6 animate-in fade-in">
+          <TrustAnomalyDashboard />
+        </div>
+      )}
+
+      {/* TAB 7: EMERGENCY DISPATCH — AI Feature 6 Stage 1 */}
+      {activeAdminTab === 'emergency' && (
+        <div className="space-y-6 animate-in fade-in">
+          <EmergencyDispatch providers={providers} bookings={bookings} />
         </div>
       )}
 

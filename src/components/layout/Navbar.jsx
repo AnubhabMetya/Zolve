@@ -269,8 +269,8 @@ export const Navbar = () => {
                   Cooperative Partnerships
                 </button>
               </>
-            ) : (
-              // Platform Admin Navigation
+            ) : activeRole === 'admin' ? (
+              // Platform Admin Navigation — only for admin role
               <>
                 <button
                   onClick={() => handleNavClick('admin')}
@@ -278,7 +278,7 @@ export const Navbar = () => {
                     activeTab === 'admin' ? 'text-brand-900 bg-brand-50' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Admin Operations Center
+                  Admin
                 </button>
                 <button
                   onClick={() => handleNavClick('cooperative')}
@@ -293,7 +293,7 @@ export const Navbar = () => {
                   Trust & Disputes
                 </button>
               </>
-            )}
+            ) : null}
           </nav>
 
           {/* Right Action Icons & Auth Controls */}
@@ -524,39 +524,44 @@ export const Navbar = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer Menu */}
+      {/* Mobile Drawer Menu — role-aware */}
       {isMobileMenuOpen && (
         <div className="md:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-2 animate-in slide-in-from-top-2">
-          <button
-            onClick={() => handleNavClick('home')}
-            className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50"
-          >
-            Services & Search
-          </button>
-          <button
-            onClick={() => handleNavClick('cooperative')}
-            className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50"
-          >
-            The Cooperative Ecosystem
-          </button>
-          <button
-            onClick={() => handleNavClick('community')}
-            className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50"
-          >
-            Community Projects
-          </button>
-          <button
-            onClick={() => handleNavClick('trust')}
-            className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50"
-          >
-            Trust & Safety
-          </button>
-          <button
-            onClick={() => handleNavClick('society')}
-            className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50"
-          >
-            Housing Society Portal
-          </button>
+          {!currentUser ? (
+            <>
+              <button onClick={() => handleNavClick('home')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Services & Search</button>
+              <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">The Cooperative Ecosystem</button>
+              <button onClick={() => handleNavClick('community')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Community Projects</button>
+              <button onClick={() => handleNavClick('trust')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Trust & Safety</button>
+              <button onClick={() => handleNavClick('society')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Housing Society Portal</button>
+            </>
+          ) : activeRole === 'customer' ? (
+            <>
+              <button onClick={() => handleNavClick('home')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Explore Services</button>
+              <button onClick={() => handleNavClick('bookings')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">My Bookings</button>
+              <button onClick={() => handleNavClick('payments')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Payments</button>
+              <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Cooperative</button>
+              <button onClick={() => handleNavClick('community')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Community</button>
+            </>
+          ) : activeRole === 'provider' ? (
+            <>
+              <button onClick={() => handleNavClick('home')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Jobs & Schedule</button>
+              <button onClick={() => handleNavClick('earnings')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Earnings Ledger</button>
+              <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Member Portal & Voting</button>
+              <button onClick={() => handleNavClick('training')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Training</button>
+            </>
+          ) : activeRole === 'society_admin' ? (
+            <>
+              <button onClick={() => handleNavClick('society')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Society Requests & Sump/Cleaning Logs</button>
+              <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Cooperative Partnerships</button>
+            </>
+          ) : activeRole === 'admin' ? (
+            <>
+              <button onClick={() => handleNavClick('admin')} className="w-full text-left px-3 py-2 text-sm font-semibold text-brand-900 bg-brand-50 rounded-lg">Admin</button>
+              <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Governance</button>
+              <button onClick={() => handleNavClick('trust')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Trust & Disputes</button>
+            </>
+          ) : null}
           {isAuthenticated ? (
             <button
               onClick={async () => { await handleLogout(); setIsMobileMenuOpen(false); }}
