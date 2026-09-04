@@ -46,11 +46,7 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
   const userCoords = (selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null && selectedLocation.lng != null) ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null;
   const selectedLocationName = (selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.name) ? selectedLocation.name : (selectedLocation?.city || 'Location not set');
   const hasExplicitLocation = selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null;
-  // Saved default address coords — strict 50km is enforced against BOTH saved and live location (OR logic: visible if within 50km of either)
-  const defaultSavedCoords = React.useMemo(() => {
-    const def = savedAddresses?.find(a => a.isDefault) || savedAddresses?.[0];
-    return def?.coords || null;
-  }, [savedAddresses]);
+  // Canonical location only — never use savedAddresses Bengaluru fallback for geo filtering
 
   const [searchQuery, setSearchQuery] = useState(initialSearch || '');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -72,18 +68,15 @@ export const ServiceSearch = ({ initialSearch = '' }) => {
     return 2 * R * Math.asin(Math.sqrt(a));
   };
 
-  // Filtered & Sorted Providers List — hide booking details beyond 50km from saved OR live location
+  // Filtered & Sorted Providers List — canonical location only, 50km hard rule
   const filteredProviders = useMemo(() => {
     if (!providers || !Array.isArray(providers)) return [];
     if (!userCoords || userCoords.lat == null) return [];
     return providers
       .map((p) => {
-        if (!p.coords) return { ...p, _distanceKm: 999, _distanceToSavedKm: 999 };
+        if (!p.coords) return { ...p, _distanceKm: 999 };
         const dLive = haversineSortKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng);
-        const dSaved = defaultSavedCoords ? haversineSortKm(defaultSavedCoords.lat, defaultSavedCoords.lng, p.coords.lat, p.coords.lng) : 999;
-        // Effective distance is the nearest of saved vs live — provider must be within 50km of at least one
-        const eff = Math.min(dLive, dSaved);
-        return { ...p, _distanceKm: eff, _distanceToLiveKm: dLive, _distanceToSavedKm: dSaved };
+        return { ...p, _distanceKm: dLive };
       })
       .filter((p) => {
         // Search text matching name, title, skills, categories

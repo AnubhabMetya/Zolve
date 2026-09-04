@@ -80,21 +80,14 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
     return null;
   }, [selectedLocation]);
 
-  const defaultSavedCoords = React.useMemo(() => {
-    const def = savedAddresses?.find(a => a.isDefault) || savedAddresses?.[0];
-    return def?.coords || null;
-  }, [savedAddresses]);
-
   const nearbyProviders = React.useMemo(() => {
-    if (!userCoords && !defaultSavedCoords) return [];
+    if (!userCoords) return [];
     return providers.filter(p => {
       if (!p.coords) return false;
-      const dLive = userCoords ? haversineKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng) : 999;
-      const dSaved = defaultSavedCoords ? haversineKm(defaultSavedCoords.lat, defaultSavedCoords.lng, p.coords.lat, p.coords.lng) : 999;
-      // Hide booking details beyond 50km from BOTH saved and live — visible if within 50km of either
-      return Math.min(dLive, dSaved) <= SERVICE_RADIUS_KM;
+      const dLive = haversineKm(userCoords.lat, userCoords.lng, p.coords.lat, p.coords.lng);
+      return dLive <= SERVICE_RADIUS_KM;
     });
-  }, [providers, userCoords, defaultSavedCoords]);
+  }, [providers, userCoords]);
 
   const nearbyCoopCount = nearbyProviders.filter(p => p.isCoopMember).length;
   const hasCoverage = nearbyProviders.length > 0;
@@ -475,7 +468,7 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
                 Services not available in this area
               </div>
               <div className="text-xs text-red-700">
-                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${selectedLocation?.name || 'this location'}. Booking details are hidden outside 50km from your saved/live location.`}
+                {`No executive corporate member within ${SERVICE_RADIUS_KM} km of ${selectedLocation?.name || 'this location'}. Booking details are hidden outside 50km from your canonical location.`}
               </div>
             </div>
           </div>

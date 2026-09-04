@@ -90,7 +90,9 @@ export const BookingModal = () => {
     zolveMoney,
     redeemZolveMoney,
     bookingPrefill,
-    setBookingPrefill
+    setBookingPrefill,
+    selectedLocation,
+    getCanonicalUserLocation,
   } = useApp();
   const { updatePhone } = useAuth();
 
@@ -104,12 +106,17 @@ export const BookingModal = () => {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [selectedDate, setSelectedDate] = useState(() => getISTDateStr());
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:30 AM - 11:30 AM');
-  const [selectedAddress, setSelectedAddress] = useState(
-    currentUser?.savedAddresses?.[0]?.addressLine || ''
-  );
+  const canonicalLoc = getCanonicalUserLocation ? getCanonicalUserLocation() : { latitude: selectedLocation?.lat ?? null, longitude: selectedLocation?.lng ?? null, city: selectedLocation?.city ?? null };
+  const [selectedAddress, setSelectedAddress] = useState(() => {
+    if (canonicalLoc.city && selectedLocation?.name) return selectedLocation.name;
+    return currentUser?.savedAddresses?.[0]?.addressLine || '';
+  });
   const [customAddress, setCustomAddress] = useState('');
   const [isCustomAddress, setIsCustomAddress] = useState(false);
-  const [addressCoords, setAddressCoords] = useState(currentUser?.savedAddresses?.[0]?.coords || null);
+  const [addressCoords, setAddressCoords] = useState(() => {
+    if (canonicalLoc.latitude != null && canonicalLoc.longitude != null) return { lat: canonicalLoc.latitude, lng: canonicalLoc.longitude };
+    return currentUser?.savedAddresses?.[0]?.coords || null;
+  });
   const [gpsLoadingAddress, setGpsLoadingAddress] = useState(false);
   const [gpsAddrError, setGpsAddrError] = useState('');
   const [addrSearchResults, setAddrSearchResults] = useState([]);
@@ -251,15 +258,21 @@ export const BookingModal = () => {
     setIsRazorpayModalOpen(false);
     setBookingPhoneError('');
     setIsSavingPhone(false);
-    // Reset address to default saved address (so second booking doesn't inherit previous custom address) — never Bengaluru fallback
-    const def = currentUser?.savedAddresses?.find(a=>a.isDefault) || currentUser?.savedAddresses?.[0];
-    if (def) {
-      setSelectedAddress(def.addressLine || def.fullAddress);
-      if (def.coords) setAddressCoords(def.coords);
-      else setAddressCoords(null);
+    // Reset address to canonical location if available, else saved address — never Bengaluru fallback
+    const canon = getCanonicalUserLocation ? getCanonicalUserLocation() : null;
+    if (canon && canon.latitude != null && canon.longitude != null) {
+      setSelectedAddress(selectedLocation?.name || canon.city || '');
+      setAddressCoords({ lat: canon.latitude, lng: canon.longitude });
     } else {
-      setSelectedAddress('');
-      setAddressCoords(null);
+      const def = currentUser?.savedAddresses?.find(a=>a.isDefault) || currentUser?.savedAddresses?.[0];
+      if (def) {
+        setSelectedAddress(def.addressLine || def.fullAddress);
+        if (def.coords) setAddressCoords(def.coords);
+        else setAddressCoords(null);
+      } else {
+        setSelectedAddress(selectedLocation?.name || '');
+        setAddressCoords(selectedLocation?.lat != null ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null);
+      }
     }
     if (!bookingPrefill?.serviceName) {
       setServiceDescription('Circuit breaker tripping and spark near kitchen switchboard.');
@@ -756,7 +769,7 @@ export const BookingModal = () => {
                     </div>
                     {gpsAddrError && <p className="text-xs text-red-600">{gpsAddrError}</p>}
                     <MapView customerPos={addressCoords} providerPos={p.coords || null} draggable onCustomerMove={setAddressCoords} height="180px" />
-                    <p className="text-[10px] text-slate-400">Drag the blue pin to adjust. Coordinates saved with booking: {addressCoords.lat.toFixed(4)}, {addressCoords.lng.toFixed(4)}</p>
+                    <p className="text-[10px] text-slate-400">Drag the blue pin to adjust. Coordinates saved with booking: {addressCoords ? `${addressCoords.lat.toFixed(4)}, ${addressCoords.lng.toFixed(4)}` : 'Not set - select location or drag pin'}</p>
                   </div>
                 </div>
               </div>

@@ -4,16 +4,21 @@ import { useApp } from '../../context/AppContext';
 import { MapPin, Search, Check, X, Building, Navigation, Loader2, AlertCircle } from 'lucide-react';
 import { getCurrentPosition, reverseGeocode, isGeolocationSupported, searchPlaces, searchByPincode, isValidIndianPincode } from '../../services/locationService';
 
-const POPULAR_AREAS = [
-  { name: 'Indiranagar, Bengaluru', hub: 'East Hub', distance: '0.8 km', coords: { lat: 12.9784, lng: 77.6408 } },
-  { name: 'Koramangala, Bengaluru', hub: 'Central Hub', distance: '2.3 km', coords: { lat: 12.9279, lng: 77.6271 } },
-  { name: 'HSR Layout, Bengaluru', hub: 'South Hub', distance: '3.5 km', coords: { lat: 12.9116, lng: 77.6387 } },
-  { name: 'Bellandur / Outer Ring Rd', hub: 'Tech Corridor', distance: '4.1 km', coords: { lat: 12.9259, lng: 77.6778 } },
-  { name: 'Whitefield, Bengaluru', hub: 'East IT Zone', distance: '6.2 km', coords: { lat: 12.9698, lng: 77.7499 } },
-  { name: 'JP Nagar, Bengaluru', hub: 'South Hub', distance: '5.8 km', coords: { lat: 12.9082, lng: 77.5833 } },
-  { name: 'Malleshwaram, Bengaluru', hub: 'West Hub', distance: '7.0 km', coords: { lat: 13.0039, lng: 77.5648 } },
-  { name: 'Green Valley Residency (Society)', hub: 'Private Society Network', distance: 'Sarjapur Rd', coords: { lat: 12.8500, lng: 77.695 } },
-];
+import { CITY_HUBS } from '../../data/mockData';
+// Dynamic popular: derived from CITY_HUBS + canonical city context, never static Bengaluru
+const getPopularAreas = (canonicalCity) => {
+  if (canonicalCity) {
+    const hub = CITY_HUBS.find(h => h.city === canonicalCity);
+    if (hub) {
+      return [
+        { name: `${hub.city} Central`, hub: `${hub.city} Hub`, distance: 'City center', coords: { lat: hub.lat, lng: hub.lng } },
+        ...CITY_HUBS.filter(h => h.city !== hub.city).slice(0, 6).map(h => ({ name: `${h.city}, ${h.state}`, hub: `${h.city} Hub`, distance: h.pincode, coords: { lat: h.lat, lng: h.lng } })),
+      ];
+    }
+  }
+  // Unknown: show all 21 hubs as selectable popular, no Bengaluru default
+  return CITY_HUBS.slice(0, 8).map(h => ({ name: `${h.city}, ${h.state}`, hub: `${h.city} Hub`, distance: h.pincode, coords: { lat: h.lat, lng: h.lng } }));
+};
 
 export const LocationModal = () => {
   const { isLocationModalOpen, setIsLocationModalOpen, selectedLocation, setSelectedLocation } = useApp();
@@ -58,7 +63,8 @@ export const LocationModal = () => {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  const filtered = POPULAR_AREAS.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
+  const popularAreas = getPopularAreas(selectedLocation?.city || null);
+  const filtered = popularAreas.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
   // avoid duplicating local popular inside remote results
   const filteredNames = new Set(filtered.map(f => f.name.toLowerCase()));
   const dedupedRemote = remoteResults.filter(r => !filteredNames.has(r.name.toLowerCase()) && !filteredNames.has((r.short || '').toLowerCase()));

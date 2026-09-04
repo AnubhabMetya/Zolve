@@ -79,8 +79,9 @@ export const AppProvider = ({ children }) => {
       const guest = localStorage.getItem(getAddressesKey('guest'))
       if (guest) { const p=JSON.parse(guest); if(Array.isArray(p) && p.length>0) return p.map(normalizeAddress) }
       for (const k of keys) { try{ const v=JSON.parse(localStorage.getItem(k)); if(Array.isArray(v)&&v.length>0) return v.map(normalizeAddress)}catch{} }
-      return DEMO_USERS.customer.savedAddresses.map(a=> normalizeAddress({ id: a.id, label: a.label, type: a.label.toLowerCase(), houseFlat: a.addressLine.split(',')[0], apartment: a.addressLine.split(',')[1]?.trim()||'', streetArea: a.addressLine.split(',').slice(2).join(',').trim(), landmark: a.landmark, city: 'Bengaluru', state: 'Karnataka', pincode: (a.addressLine.match(/(\d{6})/)||[])[1]||'', isDefault: a.isDefault, coords: a.id==='addr-1'?{lat:12.9784,lng:77.6408}:{lat:12.9259,lng:77.6271}, fullAddress: a.addressLine }))
-    } catch { return DEMO_USERS.customer.savedAddresses.map(a=> normalizeAddress({ id: a.id, label: a.label, type: a.label.toLowerCase(), houseFlat: a.addressLine.split(',')[0], apartment: a.addressLine.split(',')[1]?.trim()||'', streetArea: a.addressLine.split(',').slice(2).join(',').trim(), landmark: a.landmark, city: 'Bengaluru', state: 'Karnataka', pincode: (a.addressLine.match(/(\d{6})/)||[])[1]||'', isDefault: a.isDefault, coords: a.id==='addr-1'?{lat:12.9784,lng:77.6408}:{lat:12.9259,lng:77.6271}, fullAddress: a.addressLine })) }
+      // No saved addresses — return empty (never Bengaluru fallback). User must set address or select location.
+      return []
+    } catch { return [] }
   })
 
   // Load per-user addresses when auth changes
@@ -415,6 +416,53 @@ export const AppProvider = ({ children }) => {
     setLocationStatus(final.source === 'pincode' ? 'available' : 'manual');
     setLocationError(null);
   }, []);
+
+  // Canonical location helper — single source of truth for all geo-dependent modules
+  const getCanonicalUserLocation = React.useCallback(() => {
+    // Priority: 1) GPS/manual coords 2) manually selected city 3) pincode 4) unknown
+    if (selectedLocation && selectedLocation.lat != null && selectedLocation.lng != null) {
+      const resolved = resolveCity({ lat: selectedLocation.lat, lng: selectedLocation.lng, pincode: selectedLocation.pincode, name: selectedLocation.name, text: selectedLocation.name });
+      return {
+        latitude: selectedLocation.lat,
+        longitude: selectedLocation.lng,
+        city: resolved?.city || selectedLocation.city || null,
+        source: selectedLocation.source || 'unknown',
+        supported: resolved?.supported !== false && selectedLocation.supported !== false,
+        hub_id: resolved?.hub_id || selectedLocation.hub_id || null,
+        pincode: selectedLocation.pincode || resolved?.pincode || null,
+        name: selectedLocation.name || null,
+        timestamp: selectedLocation.timestamp || null,
+      };
+    }
+    if (selectedLocation?.city) {
+      const viaText = resolveCity({ text: selectedLocation.city, name: selectedLocation.name, pincode: selectedLocation.pincode });
+      return {
+        latitude: selectedLocation.lat ?? null,
+        longitude: selectedLocation.lng ?? null,
+        city: viaText?.city || selectedLocation.city,
+        source: selectedLocation.source || 'manual',
+        supported: viaText?.supported !== false,
+        hub_id: viaText?.hub_id || selectedLocation.hub_id || null,
+        pincode: selectedLocation.pincode || null,
+        name: selectedLocation.name || null,
+        timestamp: selectedLocation.timestamp || null,
+      };
+    }
+    if (selectedLocation?.pincode) {
+      const viaPin = resolveCity({ pincode: selectedLocation.pincode });
+      if (viaPin?.city) {
+        return { latitude: viaPin.coords?.lat ?? null, longitude: viaPin.coords?.lng ?? null, city: viaPin.city, source: 'pincode', supported: true, hub_id: viaPin.hub_id, pincode: viaPin.pincode, name: selectedLocation.name || null, timestamp: selectedLocation.timestamp || null };
+      }
+    }
+    return { latitude: null, longitude: null, city: null, source: 'unknown', supported: false, hub_id: null, pincode: null, name: null, timestamp: null };
+  }, [selectedLocation]);
+
+  // Dev-only diagnostic helper
+  React.useEffect(() => {
+    if (import.meta.env.DEV) {
+      try { window.getCanonicalUserLocation = getCanonicalUserLocation; } catch {}
+    }
+  }, [getCanonicalUserLocation]);
 
   // provider live locations keyed by bookingId: { lat,lng, updatedAt, bookingId }
   const [providerLiveLocations, setProviderLiveLocations] = useState(() => {
@@ -1580,6 +1628,7 @@ export const AppProvider = ({ children }) => {
         markNotificationRead,
         selectedLocation,
         setSelectedLocation: setSelectedLocationWithSource,
+        getCanonicalUserLocation,
         locationStatus,
         locationError,
         setLocationStatus: setLocationStatus,

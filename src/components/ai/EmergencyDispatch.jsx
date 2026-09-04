@@ -4,6 +4,7 @@ import { emergencyDispatch, resolveCustomerLocation } from '../../services/emerg
 import { CITY_HUBS } from '../../data/mockData.js';
 import { SERVICE_CATEGORIES, INITIAL_PROVIDERS } from '../../data/mockData.js';
 import { loadTrustHistory } from '../../services/aiDataLoader.js';
+import { useApp } from '../../context/AppContext.jsx';
 
 const ALL_CITIES = CITY_HUBS.filter(h=> h.city !== 'Siliguri').map(h=> h.city);
 const ALL_SERVICES = SERVICE_CATEGORIES.flatMap(cat=> cat.services.map(s=> ({id:s.id, name:s.name, category:cat.name})));
@@ -17,13 +18,31 @@ const EMERGENCY_TYPES = [
 ];
 
 export const EmergencyDispatch = ({ providers = INITIAL_PROVIDERS, bookings = [] }) => {
-  const [selectedCity, setSelectedCity] = useState('Bengaluru');
+  const { selectedLocation, getCanonicalUserLocation, setSelectedLocation: setCanonicalLocation } = useApp();
+  const canonical = getCanonicalUserLocation ? getCanonicalUserLocation() : { city: selectedLocation?.city || null };
+  const [selectedCity, setSelectedCity] = useState(canonical.city || null);
   const [selectedServiceId, setSelectedServiceId] = useState('srv-plumb-01');
   const [emergencyType, setEmergencyType] = useState('general');
   const [requestedTime, setRequestedTime] = useState('');
   const [useCoords, setUseCoords] = useState(false);
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
+
+  React.useEffect(() => {
+    const c = getCanonicalUserLocation ? getCanonicalUserLocation().city : selectedLocation?.city;
+    if (c && c !== selectedCity) setSelectedCity(c);
+    if (!c && selectedCity) setSelectedCity(null);
+  }, [selectedLocation?.city, selectedLocation?.lat, selectedLocation?.lng]);
+
+  const handleCityChange = (city) => {
+    setSelectedCity(city || null);
+    if (city) {
+      const hub = CITY_HUBS.find(h => h.city === city);
+      if (hub && setCanonicalLocation) {
+        setCanonicalLocation({ name: `${hub.city}, ${hub.state}`, lat: hub.lat, lng: hub.lng, source: 'manual', pincode: hub.pincode });
+      }
+    }
+  };
   const [trustHistory, setTrustHistory] = useState([]);
   const [trustLoading, setTrustLoading] = useState(true);
   const [trustError, setTrustError] = useState(null);
@@ -105,7 +124,8 @@ export const EmergencyDispatch = ({ providers = INITIAL_PROVIDERS, bookings = []
           </label>
           <label className="space-y-1">
             <span className="text-[11px] font-bold text-slate-600 uppercase">Customer City (20, 50 km hard limit)</span>
-            <select value={selectedCity} onChange={e=> setSelectedCity(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
+            <select value={selectedCity || ''} onChange={e=> handleCityChange(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
+              <option value="" disabled>{selectedCity ? selectedCity : 'Select city'}</option>
               {ALL_CITIES.map(c=> <option key={c} value={c}>{c}</option>)}
             </select>
           </label>
