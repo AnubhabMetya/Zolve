@@ -37,16 +37,16 @@ create policy "Applicants can view own application"
 
 create policy "Admin can view all applications"
   on public.executive_applications for select
-  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and profiles.role in ('admin','society_admin')));
+  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and (profiles.role = 'admin' or profiles.role = 'society_admin')));
 
 create policy "Admin can update applications"
   on public.executive_applications for update
-  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and profiles.role in ('admin','society_admin')))
-  with check (exists (select 1 from public.profiles where profiles.id = auth.uid() and profiles.role in ('admin','society_admin')));
+  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and (profiles.role = 'admin' or profiles.role = 'society_admin')))
+  with check (exists (select 1 from public.profiles where profiles.id = auth.uid() and (profiles.role = 'admin' or profiles.role = 'society_admin')));
 
 create policy "Admin can delete applications"
   on public.executive_applications for delete
-  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and profiles.role in ('admin','society_admin')));
+  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and (profiles.role = 'admin' or profiles.role = 'society_admin')));
 
 create or replace function public.handle_executive_updated_at() returns trigger as $$
 begin new.updated_at = now(); return new; end; $$ language plpgsql;

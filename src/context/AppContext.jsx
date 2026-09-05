@@ -155,9 +155,77 @@ export const AppProvider = ({ children }) => {
   }
 
   const [executiveApplications, setExecutiveApplications] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_exec_apps`);
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_exec_apps`) || localStorage.getItem('zolve_exec_apps');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
+
+  // Persist executive applications to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}_exec_apps`, JSON.stringify(executiveApplications));
+      localStorage.setItem('zolve_exec_apps', JSON.stringify(executiveApplications));
+    } catch {}
+  }, [executiveApplications]);
+
+  // Realtime executive sync across tabs, windows, and roles
+  useEffect(() => {
+    const handleSyncEvent = (event) => {
+      const { type, application, applicationId, rejectionReason } = event || {};
+      if (type === 'EXEC_APP_SUBMITTED' && application) {
+        setExecutiveApplications((prev) => {
+          if (prev.some(p => p.id === application.id)) return prev;
+          return [application, ...prev];
+        });
+      } else if (type === 'EXEC_APP_APPROVED' && applicationId) {
+        setExecutiveApplications((prev) => prev.map(a => a.id === applicationId ? {
+          ...a,
+          status: 'active',
+          canonicalStatus: 'approved',
+          approvedAt: new Date().toISOString()
+        } : a));
+      } else if (type === 'EXEC_APP_REJECTED' && applicationId) {
+        setExecutiveApplications((prev) => prev.map(a => a.id === applicationId ? {
+          ...a,
+          status: 'rejected',
+          canonicalStatus: 'rejected',
+          rejectionReason: rejectionReason || a.rejectionReason
+        } : a));
+      }
+    };
+
+    const onCustomEvent = (e) => {
+      if (e.detail) handleSyncEvent(e.detail);
+    };
+    window.addEventListener('zolve:executive-sync', onCustomEvent);
+
+    let bc = null;
+    try {
+      if ('BroadcastChannel' in window) {
+        bc = new BroadcastChannel('zolve_executive_channel');
+        bc.onmessage = (msg) => {
+          if (msg.data) handleSyncEvent(msg.data);
+        };
+      }
+    } catch {}
+
+    const onStorage = (e) => {
+      if (e.key === 'zolve_exec_apps' || e.key === `${STORAGE_KEY_PREFIX}_exec_apps`) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) setExecutiveApplications(parsed);
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      window.removeEventListener('zolve:executive-sync', onCustomEvent);
+      window.removeEventListener('storage', onStorage);
+      try { if (bc) bc.close(); } catch {}
+    };
+  }, []);
 
   // Hydrate executive applications from Supabase for current user (so refresh shows dashboard)
   useEffect(() => {
@@ -199,148 +267,71 @@ export const AppProvider = ({ children }) => {
     return () => { cancelled = true }
   }, [supaUser?.id])
 
-  const verticalServices = React.useCallback((vid) => EXECUTIVE_VERTICALS.find(v => v.id === vid)?.services || [], [])
+  // Subscribe to Supabase Postgres Realtime changes on executive_applications
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let channel = null;
+    try {
+      channel = supabase
+        .channel('exec-apps-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'executive_applications' }, (payload) => {
+          const row = payload.new;
+          if (row) {
+            const mapped = {
+              id: row.id,
+              applicantId: row.applicant_id,
+              applicant_id: row.applicant_id,
+              applicantName: row.full_name,
+              fullName: row.full_name,
+              applicantEmail: row.email,
+              email: row.email,
+              applicantPhone: row.phone,
+              phone: row.phone,
+              vertical: row.vertical,
+              services: row.services || [],
+              status: row.status === 'approved' ? 'active' : row.status === 'pending' ? 'pending_approval' : row.status,
+              canonicalStatus: row.status,
+              createdAt: row.created_at,
+              approvedAt: row.approved_at,
+              rejectionReason: row.rejection_reason,
+            };
+            setExecutiveApplications((prev) => {
+              const idx = prev.findIndex(p => p.id === mapped.id || (p.email && p.email.toLowerCase() === (mapped.email || '').toLowerCase() && p.vertical === mapped.vertical));
+              if (idx !== -1) {
+                const updated = [...prev];
+                updated[idx] = { ...updated[idx], ...mapped };
+                return updated;
+              }
+              return [mapped, ...prev];
+            });
 
-  // Executive session derived from executive_applications (Supabase or local fallback)
-  // Household/Personal auto-approved should immediately become executive for dashboard
-  const activeExecutiveApp = React.useMemo(() => {
-    if (!supaUser?.id && !supaProfile?.email) return null
-    const mine = executiveApplications.filter(a => {
-      if (supaUser?.id && (a.applicantId === supaUser.id || a.applicant_id === supaUser.id)) return true
-      if (supaProfile?.email && (a.applicantEmail === supaProfile.email || a.email === supaProfile.email)) return true
-      return false
-    })
-    // Prefer approved/active over pending
-    const approved = mine.find(a => {
-      const s = String(a.canonicalStatus || a.status || '').toLowerCase()
-      return s === 'approved' || s === 'active'
-    })
-    if (approved) return approved
-    return mine[0] || null
-  }, [executiveApplications, supaUser?.id, supaProfile?.email])
-
-  const isExecutiveActive = React.useMemo(() => {
-    if (!activeExecutiveApp) return false
-    const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
-    return s === 'approved' || s === 'active'
-  }, [activeExecutiveApp])
-
-  const isExecutivePendingApp = React.useMemo(() => {
-    if (!activeExecutiveApp) return false
-    const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
-    return s === 'pending' || s === 'pending_approval'
-  }, [activeExecutiveApp])
-
-  const currentUser = React.useMemo(() => {
-    if (!supaProfile) return null
-    const base = {
-      id: supaProfile.id,
-      name: supaProfile.full_name,
-      email: supaProfile.email,
-      phone: supaProfile.phone || supaUser?.user_metadata?.phone || null,
-      phone_verified: supaProfile.phone_verified || false,
-      role: supaProfile.role,
-      avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
-      location: savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || null,
-      isCoopMember: supaProfile.role === 'provider',
-      savedAddresses,
+            // If this application belongs to current user, send instant alert
+            const isMe = (supaUser?.id && row.applicant_id === supaUser.id) || (supaProfile?.email && row.email && row.email.toLowerCase() === supaProfile.email.toLowerCase());
+            if (isMe) {
+              if (row.status === 'approved') {
+                addNotification({
+                  title: 'Executive Approved 🎉',
+                  message: 'Your Community & Society Executive access is activated. You now have access to society orders.',
+                  type: 'system'
+                });
+              } else if (row.status === 'rejected') {
+                addNotification({
+                  title: 'Executive Application Status',
+                  message: `Your Community & Society application was not approved. Reason: ${row.rejection_reason || 'Not specified'}`,
+                  type: 'system'
+                });
+              }
+            }
+          }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('[AppContext] realtime subscription failed:', err);
     }
-    if (isExecutiveActive && activeExecutiveApp) {
-      return {
-        ...base,
-        role: 'executive',
-        executiveVertical: activeExecutiveApp.vertical,
-        executiveStatus: 'active',
-        mobileVerified: true,
-        mobileVerifiedAt: new Date().toISOString(),
-        assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
-        executiveApplicationId: activeExecutiveApp.id,
-      }
-    }
-    if (isExecutivePendingApp && activeExecutiveApp) {
-      return {
-        ...base,
-        role: 'executive',
-        executiveVertical: activeExecutiveApp.vertical,
-        executiveStatus: 'pending_approval',
-        mobileVerified: true,
-        assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
-        executiveApplicationId: activeExecutiveApp.id,
-      }
-    }
-    return base
-  }, [supaProfile, supaUser, savedAddresses, activeExecutiveApp, isExecutiveActive, isExecutivePendingApp, verticalServices])
-
-  const activeRole = React.useMemo(() => {
-    if (isExecutiveActive || isExecutivePendingApp) return 'executive'
-    return supaProfile?.role || 'customer'
-  }, [supaProfile?.role, isExecutiveActive, isExecutivePendingApp])
-  // Keep setter stubs for backward compat (no-op, auth is Supabase)
-  const setCurrentUser = () => { console.warn('[AppContext] setCurrentUser is deprecated — use Supabase Auth') }
-  const setActiveRole = () => { console.warn('[AppContext] setActiveRole is deprecated — role from profiles') }
-
-  // 2. Core Entities State — Supabase is source of truth (localStorage no longer for bookings/providers)
-  const [providers, setProviders] = useState(INITIAL_PROVIDERS);
-  const [bookings, setBookings] = useState([]);
-  const [bookingsLoading, setBookingsLoading] = useState(false);
-
-  const [proposals, setProposals] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_proposals`);
-    return saved ? JSON.parse(saved) : COOPERATIVE_PROPOSALS;
-  });
-
-  const [trainingModules, setTrainingModules] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_trainings`);
-    return saved ? JSON.parse(saved) : COOPERATIVE_TRAINING_MODULES;
-  });
-
-  const [societyData, setSocietyData] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_society`);
-    return saved ? JSON.parse(saved) : SOCIETY_DATA;
-  });
-  const [societies, setSocieties] = useState([]);
-  const [societiesLoading, setSocietiesLoading] = useState(false);
-  const [societyRequests, setSocietyRequests] = useState([]);
-  const [societyRequestsLoading, setSocietyRequestsLoading] = useState(false);
-
-  // Earnings derived from bookings (Supabase view), not separate localStorage
-  const [earningsLedger, setEarningsLedger] = useState([]);
-
-  const [supportTickets, setSupportTickets] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_tickets`);
-    return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
-  });
-  const [supportTicketsLoading, setSupportTicketsLoading] = useState(false);
-
-  // Community — persisted per-browser joins + real participant counts
-  const [joinedProjects, setJoinedProjects] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_community_joins`);
-    try { return saved ? JSON.parse(saved) : {}; } catch { return {}; }
-  });
-
-  const [communityProjects, setCommunityProjects] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_community_projects`);
-    try { return saved ? JSON.parse(saved) : COMMUNITY_PROJECTS; } catch { return COMMUNITY_PROJECTS; }
-  });
-
-  const [notifications, setNotifications] = useState([
-    {
-      id: 'notif-1',
-      title: 'Welcome to Zolve!',
-      message: 'Explore trusted local services and learn about our cooperative community model.',
-      type: 'system',
-      read: false,
-      time: 'Just now'
-    },
-    {
-      id: 'notif-2',
-      title: 'Cooperative Proposal Active',
-      message: 'Vote on Proposal ZCP-2026-09: Emergency Health & Tool Insurance Pool.',
-      type: 'coop',
-      read: false,
-      time: '2 hours ago'
-    }
-  ]);
+    return () => {
+      try { if (channel) supabase.removeChannel(channel); } catch {}
+    };
+  }, [supaUser?.id, supaProfile?.email]);
 
   const [selectedLocation, setSelectedLocation] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_location`);
@@ -566,6 +557,179 @@ export const AppProvider = ({ children }) => {
       try { window.getCanonicalUserLocation = getCanonicalUserLocation; } catch {}
     }
   }, [getCanonicalUserLocation]);
+
+  const verticalServices = React.useCallback((vid) => EXECUTIVE_VERTICALS.find(v => v.id === vid)?.services || [], [])
+
+  // Executive session derived from executive_applications (Supabase or local fallback)
+  // Household/Personal auto-approved should immediately become executive for dashboard
+  const activeExecutiveApp = React.useMemo(() => {
+    let mine = []
+    if (supaUser?.id || supaProfile?.email) {
+      mine = executiveApplications.filter(a => {
+        if (supaUser?.id && (a.applicantId === supaUser.id || a.applicant_id === supaUser.id)) return true
+        if (supaProfile?.email && (a.applicantEmail === supaProfile.email || a.email === supaProfile.email)) return true
+        return false
+      })
+    } else {
+      // Guest or local executive: pick the most recent application
+      mine = executiveApplications;
+    }
+    // Prefer approved/active over pending
+    const approved = mine.find(a => {
+      const s = String(a.canonicalStatus || a.status || '').toLowerCase()
+      return s === 'approved' || s === 'active'
+    })
+    if (approved) return approved
+    return mine[0] || null
+  }, [executiveApplications, supaUser?.id, supaProfile?.email])
+
+  const isExecutiveActive = React.useMemo(() => {
+    if (!activeExecutiveApp) return false
+    const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
+    return s === 'approved' || s === 'active'
+  }, [activeExecutiveApp])
+
+  const isExecutivePendingApp = React.useMemo(() => {
+    if (!activeExecutiveApp) return false
+    const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
+    return s === 'pending' || s === 'pending_approval'
+  }, [activeExecutiveApp])
+
+  const currentUser = React.useMemo(() => {
+    if (!supaProfile) {
+      if (activeExecutiveApp) {
+        return {
+          id: activeExecutiveApp.applicantId || activeExecutiveApp.id || `usr-exec-${activeExecutiveApp.id}`,
+          name: activeExecutiveApp.applicantName || activeExecutiveApp.fullName || 'Executive',
+          email: activeExecutiveApp.applicantEmail || activeExecutiveApp.email || '',
+          phone: activeExecutiveApp.applicantPhone || activeExecutiveApp.phone || '',
+          role: 'executive',
+          executiveVertical: activeExecutiveApp.vertical,
+          executiveStatus: isExecutiveActive ? 'active' : 'pending_approval',
+          mobileVerified: true,
+          mobileVerifiedAt: new Date().toISOString(),
+          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+          location: activeExecutiveApp.locationName || activeExecutiveApp.location || selectedLocation?.name || selectedLocation?.city || null,
+          coordinates: activeExecutiveApp.coordinates || (selectedLocation?.lat && selectedLocation?.lng ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null),
+          locationAccuracy: activeExecutiveApp.locationAccuracy || selectedLocation?.accuracy || null,
+          assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
+          executiveApplicationId: activeExecutiveApp.id,
+          savedAddresses: [],
+          isCoopMember: false,
+        }
+      }
+      return null
+    }
+    const base = {
+      id: supaProfile.id,
+      name: supaProfile.full_name,
+      email: supaProfile.email,
+      phone: supaProfile.phone || supaUser?.user_metadata?.phone || null,
+      phone_verified: supaProfile.phone_verified || false,
+      role: supaProfile.role,
+      avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
+      location: activeExecutiveApp?.locationName || activeExecutiveApp?.location || savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || selectedLocation?.name || null,
+      coordinates: activeExecutiveApp?.coordinates || (selectedLocation?.lat && selectedLocation?.lng ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null),
+      locationAccuracy: activeExecutiveApp?.locationAccuracy || selectedLocation?.accuracy || null,
+      isCoopMember: supaProfile.role === 'provider',
+      savedAddresses,
+    }
+    if (isExecutiveActive && activeExecutiveApp) {
+      return {
+        ...base,
+        role: 'executive',
+        executiveVertical: activeExecutiveApp.vertical,
+        executiveStatus: 'active',
+        mobileVerified: true,
+        mobileVerifiedAt: new Date().toISOString(),
+        assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
+        executiveApplicationId: activeExecutiveApp.id,
+      }
+    }
+    if (isExecutivePendingApp && activeExecutiveApp) {
+      return {
+        ...base,
+        role: 'executive',
+        executiveVertical: activeExecutiveApp.vertical,
+        executiveStatus: 'pending_approval',
+        mobileVerified: true,
+        assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
+        executiveApplicationId: activeExecutiveApp.id,
+      }
+    }
+    return base
+  }, [supaProfile, supaUser, savedAddresses, activeExecutiveApp, isExecutiveActive, isExecutivePendingApp, verticalServices, selectedLocation])
+
+  const activeRole = React.useMemo(() => {
+    if (isExecutiveActive || isExecutivePendingApp) return 'executive'
+    return supaProfile?.role || 'customer'
+  }, [supaProfile?.role, isExecutiveActive, isExecutivePendingApp])
+  // Keep setter stubs for backward compat (no-op, auth is Supabase)
+  const setCurrentUser = () => { console.warn('[AppContext] setCurrentUser is deprecated — use Supabase Auth') }
+  const setActiveRole = () => { console.warn('[AppContext] setActiveRole is deprecated — role from profiles') }
+
+  // 2. Core Entities State — Supabase is source of truth (localStorage no longer for bookings/providers)
+  const [providers, setProviders] = useState(INITIAL_PROVIDERS);
+  const [bookings, setBookings] = useState([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+
+  const [proposals, setProposals] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_proposals`);
+    return saved ? JSON.parse(saved) : COOPERATIVE_PROPOSALS;
+  });
+
+  const [trainingModules, setTrainingModules] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_trainings`);
+    return saved ? JSON.parse(saved) : COOPERATIVE_TRAINING_MODULES;
+  });
+
+  const [societyData, setSocietyData] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_society`);
+    return saved ? JSON.parse(saved) : SOCIETY_DATA;
+  });
+  const [societies, setSocieties] = useState([]);
+  const [societiesLoading, setSocietiesLoading] = useState(false);
+  const [societyRequests, setSocietyRequests] = useState([]);
+  const [societyRequestsLoading, setSocietyRequestsLoading] = useState(false);
+
+  // Earnings derived from bookings (Supabase view), not separate localStorage
+  const [earningsLedger, setEarningsLedger] = useState([]);
+
+  const [supportTickets, setSupportTickets] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_tickets`);
+    return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
+  });
+  const [supportTicketsLoading, setSupportTicketsLoading] = useState(false);
+
+  // Community — persisted per-browser joins + real participant counts
+  const [joinedProjects, setJoinedProjects] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_community_joins`);
+    try { return saved ? JSON.parse(saved) : {}; } catch { return {}; }
+  });
+
+  const [communityProjects, setCommunityProjects] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_community_projects`);
+    try { return saved ? JSON.parse(saved) : COMMUNITY_PROJECTS; } catch { return COMMUNITY_PROJECTS; }
+  });
+
+  const [notifications, setNotifications] = useState([
+    {
+      id: 'notif-1',
+      title: 'Welcome to Zolve!',
+      message: 'Explore trusted local services and learn about our cooperative community model.',
+      type: 'system',
+      read: false,
+      time: 'Just now'
+    },
+    {
+      id: 'notif-2',
+      title: 'Cooperative Proposal Active',
+      message: 'Vote on Proposal ZCP-2026-09: Emergency Health & Tool Insurance Pool.',
+      type: 'coop',
+      read: false,
+      time: '2 hours ago'
+    }
+  ]);
 
   // provider live locations keyed by bookingId: { lat,lng, updatedAt, bookingId }
   const [providerLiveLocations, setProviderLiveLocations] = useState(() => {
@@ -944,16 +1108,31 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const [declinedJobIds, setDeclinedJobIds] = useState(() => new Set());
+
   const registerExecutive = async (formData) => {
     const vertical = formData.executiveVertical;
     const requiresApproval = vertical === 'community';
+    const selectedSkills = (Array.isArray(formData.services) && formData.services.length > 0)
+      ? formData.services.slice(0, 3)
+      : (verticalServices(vertical) || []);
+
+    const locName = formData.location?.cityName || formData.location?.name || selectedLocation?.name || selectedLocation?.city || null;
+    const locCoords = formData.location?.coordinates || (formData.location?.lat && formData.location?.lng ? { lat: formData.location.lat, lng: formData.location.lng } : null) || (selectedLocation?.lat && selectedLocation?.lng ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null) || null;
+    const locAccuracy = formData.location?.accuracy ?? selectedLocation?.accuracy ?? null;
+
     const localApp = {
       id: `exec-app-${Date.now()}`,
       vertical,
+      services: selectedSkills,
       status: requiresApproval ? 'pending_approval' : 'active',
       applicantName: formData.fullName,
       applicantPhone: formData.mobileNumber,
       applicantEmail: formData.gmailAddress,
+      location: locName,
+      locationName: locName,
+      coordinates: locCoords,
+      locationAccuracy: locAccuracy,
       createdAt: new Date().toISOString()
     };
 
@@ -962,7 +1141,8 @@ export const AppProvider = ({ children }) => {
     let supaError = null
     if (isSupabaseConfigured()) {
       try {
-        const res = await ExecutiveApplicationService.submitApplication(formData, supaUser)
+        const payload = { ...formData, services: selectedSkills, locationName: locName, coordinates: locCoords, locationAccuracy: locAccuracy };
+        const res = await ExecutiveApplicationService.submitApplication(payload, supaUser)
         persistedApp = res
         const unified = {
           ...localApp,
@@ -971,11 +1151,16 @@ export const AppProvider = ({ children }) => {
           canonicalStatus: res.status,
           applicantId: res.applicantId ?? supaUser?.id ?? localApp.applicantId,
           createdAt: res.createdAt || localApp.createdAt,
-          services: res.services || verticalServices(vertical),
+          services: (res.services && res.services.length > 0) ? res.services : selectedSkills,
+          location: locName,
+          locationName: locName,
+          coordinates: locCoords,
+          locationAccuracy: locAccuracy,
         }
         setExecutiveApplications((prev) => [unified, ...prev]);
         localApp.canonicalStatus = res.status
         localApp.id = res.id
+        localApp.services = unified.services
       } catch (e) {
         supaError = e
         console.warn('[registerExecutive] Supabase insert failed, falling back to local', e?.message || e)
@@ -996,17 +1181,18 @@ export const AppProvider = ({ children }) => {
       mobileVerified: true,
       mobileVerifiedAt: new Date().toISOString(),
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-      location: selectedLocation?.name || selectedLocation?.city || null,
-      assignedServices: EXECUTIVE_VERTICALS.find(v => v.id === vertical)?.services || []
+      location: locName,
+      coordinates: locCoords,
+      locationAccuracy: locAccuracy,
+      assignedServices: selectedSkills
     };
 
     if (!requiresApproval) {
-      // keep existing deprecated behavior for non-community (no approval needed)
-      addNotification({ title: 'Executive Registration Complete', message: `Welcome, ${executiveUser.name}! Vertical: ${vertical}`, type: 'system' });
+      addNotification({ title: 'Executive Registration Complete', message: `Welcome, ${executiveUser.name}! Vertical: ${vertical} (${selectedSkills.length} skills selected)`, type: 'system' });
     } else {
       addNotification({ title: 'Executive Application Submitted', message: 'Community executive requires Society Admin approval. You will be activated shortly.', type: 'system' });
     }
-    const app = persistedApp ? { ...localApp, ...persistedApp, canonicalStatus: persistedApp.status } : localApp
+    const app = persistedApp ? { ...localApp, ...persistedApp, canonicalStatus: persistedApp.status, services: selectedSkills } : localApp
     return { app, executiveUser, requiresApproval, supaError };
   };
 
@@ -1296,6 +1482,50 @@ export const AppProvider = ({ children }) => {
       title: `Booking #${bookingId.substring(0, 11)} Updated`,
       message: `Status transitioned to ${newStatus.replace(/_/g, ' ')}`,
       type: 'booking'
+    });
+  };
+
+  const acceptExecutiveJob = async (bookingId) => {
+    if (!currentUser) return;
+    const patch = {
+      booking_status: 'PROVIDER_ACCEPTED',
+      assigned_executive_id: currentUser.id,
+      updated_at: new Date().toISOString()
+    };
+    if (isSupabaseConfigured() && supaSession) {
+      try {
+        await supabase.from('bookings').update(patch).eq('id', bookingId);
+      } catch (e) {
+        console.warn('[acceptExecutiveJob] remote update failed:', e?.message || e);
+      }
+    }
+    setBookings((prev) =>
+      prev.map((b) => {
+        if (b.id === bookingId) {
+          return {
+            ...b,
+            bookingStatus: 'PROVIDER_ACCEPTED',
+            assignedExecutiveId: currentUser.id,
+            assignedExecutiveName: currentUser.name,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return b;
+      })
+    );
+    addNotification({
+      title: 'Job Accepted! 🚀',
+      message: `You have accepted service request #${bookingId.slice(-6)}. View in My Jobs.`,
+      type: 'booking'
+    });
+  };
+
+  const declineExecutiveJob = (bookingId) => {
+    setDeclinedJobIds((prev) => new Set([...prev, bookingId]));
+    addNotification({
+      title: 'Job Dismissed',
+      message: 'Job removed from your immediate discovery feed.',
+      type: 'system'
     });
   };
 
@@ -1690,6 +1920,9 @@ export const AppProvider = ({ children }) => {
         bookings,
         createBooking,
         updateBookingStatus,
+        acceptExecutiveJob,
+        declineExecutiveJob,
+        declinedJobIds,
         sendBookingChatMessage,
         submitReview,
         proposals,

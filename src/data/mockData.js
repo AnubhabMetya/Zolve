@@ -378,7 +378,8 @@ export const EXECUTIVE_VERTICALS = [
     services: ['Society Common Area Sanitization','Water Sump & Overhead Tank Cleaning','Community Event Sound & Electrical Setup'],
     icon: 'Building2',
     color: 'from-amber-600 to-orange-700',
-    categoryIds: ['cat-community']
+    categoryIds: ['cat-community'],
+    requiresApproval: true
   }
 ];
 

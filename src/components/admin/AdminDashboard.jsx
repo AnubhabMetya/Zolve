@@ -41,7 +41,12 @@ export const AdminDashboard = () => {
     bookings,
     proposals,
     createProposal,
-    addNotification
+    addNotification,
+    executiveApplications,
+    approveExecutiveApplication,
+    rejectExecutiveApplication,
+    activeRole,
+    currentUser
   } = useApp();
 
   const [activeAdminTab, setActiveAdminTab] = useState('overview'); // 'overview' | 'kyc' | 'disputes' | 'proposals' | 'ai_demand' | 'workforce' | 'trust' | 'emergency' | 'executive_approvals'
@@ -52,7 +57,7 @@ export const AdminDashboard = () => {
 
   // Executive Approvals state
   const { user: adminUser, profile } = useAuth();
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'society_admin';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'society_admin' || activeRole === 'admin' || activeRole === 'society_admin' || currentUser?.role === 'admin' || currentUser?.role === 'society_admin';
   const [execApps, setExecApps] = useState([]);
   const [execLoading, setExecLoading] = useState(false);
   const [execError, setExecError] = useState(null);
@@ -99,16 +104,24 @@ export const AdminDashboard = () => {
   }, []);
 
   const fetchExecutiveApprovals = React.useCallback(async () => {
-    if (!isSupabaseConfigured()) { setExecError('Supabase not configured'); return; }
-    if (!isAdmin) { setExecError('Access restricted — admin only'); return; }
     setExecLoading(true); setExecError(null);
     try {
-      const data = await ExecutiveApplicationService.fetchPendingApplications();
-      setExecApps(data);
+      const remoteData = await ExecutiveApplicationService.fetchPendingApplications();
+      const localPending = (executiveApplications || []).filter(a => {
+        const s = String(a.canonicalStatus || a.status || '').toLowerCase();
+        return s === 'pending' || s === 'pending_approval';
+      });
+      const remoteIds = new Set((remoteData || []).map(r => r.id));
+      const remoteEmails = new Set((remoteData || []).map(r => (r.email || r.applicantEmail || '').toLowerCase()));
+      const combined = [
+        ...(remoteData || []),
+        ...localPending.filter(l => !remoteIds.has(l.id) && !remoteEmails.has((l.email || l.applicantEmail || '').toLowerCase()))
+      ];
+      setExecApps(combined);
     } catch (e) {
       setExecError(e?.message || 'Failed to load pending applications');
     } finally { setExecLoading(false); }
-  }, [isAdmin]);
+  }, [executiveApplications]);
 
   React.useEffect(() => {
     if (activeAdminTab === 'executive_approvals') fetchExecutiveApprovals();
@@ -116,32 +129,71 @@ export const AdminDashboard = () => {
 
   // Fetch count for badge even before opening tab, and subscribe realtime so admin gets message instantly
   React.useEffect(() => {
-    if (!isAdmin || !isSupabaseConfigured()) return;
     fetchExecutiveApprovals();
     let channel = null;
+    if (isSupabaseConfigured()) {
+      try {
+        channel = supabase
+          .channel('exec-approvals-admin')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'executive_applications' }, (payload) => {
+            fetchExecutiveApprovals();
+            if (payload.eventType === 'INSERT' && payload.new?.status === 'pending') {
+              const v = payload.new.vertical || 'community';
+              const name = payload.new.full_name || 'New applicant';
+              addNotification({ title: 'New Executive Approval Required', message: `${name} applied for ${v} — Community & Society Services. Review in Admin → Executive Approvals.`, type: 'system' });
+            }
+          })
+          .subscribe();
+      } catch {}
+    }
+
+    const onSync = (e) => {
+      fetchExecutiveApprovals();
+      if (e?.detail?.type === 'EXEC_APP_SUBMITTED') {
+        const app = e.detail.application;
+        addNotification({
+          title: 'New Executive Approval Required',
+          message: `${app?.fullName || app?.applicantName || 'New applicant'} applied for Community & Society Services. Review in Admin → Executive Approvals.`,
+          type: 'system'
+        });
+      }
+    };
+    window.addEventListener('zolve:executive-sync', onSync);
+
+    let bc = null;
     try {
-      channel = supabase
-        .channel('exec-approvals-admin')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'executive_applications' }, (payload) => {
-          // Refresh list and notify admin
+      if ('BroadcastChannel' in window) {
+        bc = new BroadcastChannel('zolve_executive_channel');
+        bc.onmessage = (msg) => {
           fetchExecutiveApprovals();
-          if (payload.eventType === 'INSERT' && payload.new?.status === 'pending') {
-            const v = payload.new.vertical || 'community';
-            const name = payload.new.full_name || 'New applicant';
-            addNotification({ title: 'New Executive Approval Required', message: `${name} applied for ${v} — Community & Society Services. Review in Admin → Executive Approvals.`, type: 'system' });
+          if (msg.data?.type === 'EXEC_APP_SUBMITTED') {
+            const app = msg.data.application;
+            addNotification({
+              title: 'New Executive Approval Required',
+              message: `${app?.fullName || app?.applicantName || 'New applicant'} applied for Community & Society Services. Review in Admin → Executive Approvals.`,
+              type: 'system'
+            });
           }
-        })
-        .subscribe();
+        };
+      }
     } catch {}
-    return () => { try { if (channel) supabase.removeChannel(channel); } catch {} };
-  }, [isAdmin, fetchExecutiveApprovals, addNotification]);
+
+    return () => {
+      try { if (channel) supabase.removeChannel(channel); } catch {}
+      window.removeEventListener('zolve:executive-sync', onSync);
+      try { if (bc) bc.close(); } catch {}
+    };
+  }, [fetchExecutiveApprovals, addNotification]);
 
   const handleApproveExec = async (appId) => {
-    if (!isAdmin) return;
     setApprovingId(appId);
     try {
-      await ExecutiveApplicationService.approveApplication(appId, adminUser);
-      addNotification({ title: 'Executive Approved', message: `Application ${appId} approved.`, type: 'system' });
+      if (approveExecutiveApplication) {
+        await approveExecutiveApplication(appId);
+      } else {
+        await ExecutiveApplicationService.approveApplication(appId, adminUser);
+        addNotification({ title: 'Executive Approved', message: `Application ${appId} approved.`, type: 'system' });
+      }
       await fetchExecutiveApprovals();
     } catch (e) {
       setExecError(e?.message || 'Approve failed');
@@ -151,11 +203,14 @@ export const AdminDashboard = () => {
   const handleRejectExec = async (appId) => {
     const reason = rejectReasons[appId];
     if (!reason || !String(reason).trim()) { alert('Please provide a rejection reason'); return; }
-    if (!isAdmin) return;
     setRejectingId(appId);
     try {
-      await ExecutiveApplicationService.rejectApplication(appId, adminUser, reason);
-      addNotification({ title: 'Executive Rejected', message: `Application ${appId} rejected.`, type: 'system' });
+      if (rejectExecutiveApplication) {
+        await rejectExecutiveApplication(appId, reason);
+      } else {
+        await ExecutiveApplicationService.rejectApplication(appId, adminUser, reason);
+        addNotification({ title: 'Executive Rejected', message: `Application ${appId} rejected.`, type: 'system' });
+      }
       setRejectReasons(prev => { const n={...prev}; delete n[appId]; return n; });
       await fetchExecutiveApprovals();
     } catch (e) {
@@ -611,13 +666,10 @@ export const AdminDashboard = () => {
             <p className="text-xs text-slate-500 mt-0.5">Review pending Community & Society Executive applications. Approve or reject with reason. Data from Supabase executive_applications.</p>
           </div>
 
-          {!isSupabaseConfigured() && (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800">Supabase not configured — approval queue unavailable.</div>
-          )}
           {!isAdmin && isSupabaseConfigured() && (
             <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-700">Access restricted — admin role required (profiles.role = admin).</div>
           )}
-          {isAdmin && isSupabaseConfigured() && (
+          {isAdmin && (
             <>
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900">Pending Applications ({execApps.length})</h3>

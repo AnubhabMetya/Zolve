@@ -86,6 +86,7 @@ export function AppContent() {
     if (location.pathname !== '/search') navigate('/search');
   };
 
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const handleNavClick = (tabKey) => {
     // Map activeTab to route for React Router, keep public browsing accessible
     const routeMap = {
