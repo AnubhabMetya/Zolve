@@ -560,20 +560,10 @@ export const AppProvider = ({ children }) => {
 
   const verticalServices = React.useCallback((vid) => EXECUTIVE_VERTICALS.find(v => v.id === vid)?.services || [], [])
 
-  // Executive session derived from executive_applications (Supabase or local fallback)
-  // Household/Personal auto-approved should immediately become executive for dashboard
+  // Executive session derived from executive_applications — authenticated only (security: no guest/localStorage escalation)
   const activeExecutiveApp = React.useMemo(() => {
-    let mine = []
-    if (supaUser?.id || supaProfile?.email) {
-      mine = executiveApplications.filter(a => {
-        if (supaUser?.id && (a.applicantId === supaUser.id || a.applicant_id === supaUser.id)) return true
-        if (supaProfile?.email && (a.applicantEmail === supaProfile.email || a.email === supaProfile.email)) return true
-        return false
-      })
-    } else {
-      // Guest or local executive: pick the most recent application
-      mine = executiveApplications;
-    }
+    if (!supaUser?.id) return null
+    const mine = executiveApplications.filter(a => a.applicantId === supaUser.id || a.applicant_id === supaUser.id)
     // Prefer approved/active over pending
     const approved = mine.find(a => {
       const s = String(a.canonicalStatus || a.status || '').toLowerCase()
@@ -581,23 +571,25 @@ export const AppProvider = ({ children }) => {
     })
     if (approved) return approved
     return mine[0] || null
-  }, [executiveApplications, supaUser?.id, supaProfile?.email])
+  }, [executiveApplications, supaUser?.id])
 
   const isExecutiveActive = React.useMemo(() => {
+    if (!supaUser?.id) return false
     if (!activeExecutiveApp) return false
     const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
     return s === 'approved' || s === 'active'
-  }, [activeExecutiveApp])
+  }, [supaUser?.id, activeExecutiveApp])
 
   const isExecutivePendingApp = React.useMemo(() => {
+    if (!supaUser?.id) return false
     if (!activeExecutiveApp) return false
     const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
     return s === 'pending' || s === 'pending_approval'
-  }, [activeExecutiveApp])
+  }, [supaUser?.id, activeExecutiveApp])
 
   const currentUser = React.useMemo(() => {
     if (!supaProfile) {
-      if (activeExecutiveApp) {
+      if (supaUser?.id && activeExecutiveApp) {
         return {
           id: activeExecutiveApp.applicantId || activeExecutiveApp.id || `usr-exec-${activeExecutiveApp.id}`,
           name: activeExecutiveApp.applicantName || activeExecutiveApp.fullName || 'Executive',
@@ -634,7 +626,7 @@ export const AppProvider = ({ children }) => {
       isCoopMember: supaProfile.role === 'provider',
       savedAddresses,
     }
-    if (isExecutiveActive && activeExecutiveApp) {
+    if (supaUser?.id && isExecutiveActive && activeExecutiveApp) {
       return {
         ...base,
         role: 'executive',
@@ -646,7 +638,7 @@ export const AppProvider = ({ children }) => {
         executiveApplicationId: activeExecutiveApp.id,
       }
     }
-    if (isExecutivePendingApp && activeExecutiveApp) {
+    if (supaUser?.id && isExecutivePendingApp && activeExecutiveApp) {
       return {
         ...base,
         role: 'executive',
@@ -661,9 +653,22 @@ export const AppProvider = ({ children }) => {
   }, [supaProfile, supaUser, savedAddresses, activeExecutiveApp, isExecutiveActive, isExecutivePendingApp, verticalServices, selectedLocation])
 
   const activeRole = React.useMemo(() => {
-    if (isExecutiveActive || isExecutivePendingApp) return 'executive'
+    if (supaUser?.id && (isExecutiveActive || isExecutivePendingApp)) return 'executive'
     return supaProfile?.role || 'customer'
-  }, [supaProfile?.role, isExecutiveActive, isExecutivePendingApp])
+  }, [supaUser?.id, supaProfile?.role, isExecutiveActive, isExecutivePendingApp])
+
+  // Security: clear executive session on Supabase sign-out so next user cannot inherit previous state
+  const prevSupaUserIdRef = React.useRef(supaUser?.id)
+  React.useEffect(() => {
+    if (prevSupaUserIdRef.current && !supaUser?.id) {
+      setExecutiveApplications([])
+      try {
+        localStorage.removeItem(`${STORAGE_KEY_PREFIX}_exec_apps`)
+        localStorage.removeItem('zolve_exec_apps')
+      } catch {}
+    }
+    prevSupaUserIdRef.current = supaUser?.id
+  }, [supaUser?.id])
   // Keep setter stubs for backward compat (no-op, auth is Supabase)
   const setCurrentUser = () => { console.warn('[AppContext] setCurrentUser is deprecated — use Supabase Auth') }
   const setActiveRole = () => { console.warn('[AppContext] setActiveRole is deprecated — role from profiles') }
@@ -1088,6 +1093,12 @@ export const AppProvider = ({ children }) => {
     try { if (auth?.signOut) await auth.signOut() } catch (e) { console.warn('[logout]', e) }
     // Clear any legacy localStorage keys if present
     try { localStorage.removeItem(`${STORAGE_KEY_PREFIX}_user`); localStorage.removeItem(`${STORAGE_KEY_PREFIX}_role`) } catch {}
+    // Security: clear executive session so next user cannot inherit localStorage-derived executive role
+    try {
+      setExecutiveApplications([])
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}_exec_apps`)
+      localStorage.removeItem('zolve_exec_apps')
+    } catch {}
     setActiveTab('home')
     addNotification({ title: 'Signed Out', message: 'You have been safely signed out of Zolve.', type: 'system' })
   };
