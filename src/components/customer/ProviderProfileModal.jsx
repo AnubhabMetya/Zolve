@@ -117,7 +117,7 @@ export const ProviderProfileModal = () => {
                 <Phone className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-[11px] font-bold text-slate-900">Phone & OTP</div>
+                <div className="text-[11px] font-bold text-slate-900">Phone & Email Verified</div>
                 <div className="text-[10px] text-amber-700 font-semibold">2FA Authenticated ✓</div>
               </div>
             </div>

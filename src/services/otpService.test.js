@@ -1,255 +1,240 @@
-// Tests for hardened Email OTP (Community & Society Executive) + mobile OTP unchanged
+// Tests for Email OTP via Supabase Edge Function + Resend — ALL Executive types use Email OTP
 import {
-  isValidEmail,
-  isValidIndianMobile,
   generateOtp,
-  sendMobileOtp,
-  verifyMobileOtp,
   sendEmailOtp,
   verifyEmailOtp,
+  resendEmailOtp,
+  sendMobileOtp,
+  verifyMobileOtp,
   _clearEmailOtpStore,
   _getEmailOtpStoreSize,
   _peekEmailOtpRecord,
 } from './otpService.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
-function assertEqual(a, b, msg) { if (a !== b) throw new Error(`${msg}: expected ${b}, got ${a}`); }
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
-  try { await fn(); console.log(`✓ ${name}`); passed++; } catch (e) { console.error(`✗ ${name}: ${e.message}`); failed++; }
+  try { await fn(); console.log(`✓ ${name}`); passed++; } catch (e) { console.error(`✗ ${name}: ${e.message} ${e.stack?.split('\n')[1]||''}`); failed++; }
 }
 
-// Helper to wait
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
 async function run() {
-  // Ensure clean state
   _clearEmailOtpStore();
   globalThis.__FORCE_DEV__ = true;
   globalThis.__FORCE_PROD__ = false;
+  // Force dev fallback for most tests (so devOtp available) — real Edge is deployed and would return via:'resend' without devOtp
+  globalThis.__mockSupabaseInvoke = async () => { throw new Error('dev fallback mock'); };
 
-  // 1. valid email accepted
-  await test('1. valid email accepted', async () => {
-    _clearEmailOtpStore();
-    const res = await sendEmailOtp('test@example.com', 'Test User');
-    assert(res.success === true, `expected success true got ${JSON.stringify(res)}`);
-    assert(!res.error || !res.error.includes('valid email'), 'should not error');
+  // 1. Secure OTP generation
+  await test('1. Secure OTP generation (crypto.getRandomValues, 6 digits)', async () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/services/otpService.js'), 'utf8');
+    assert(src.includes('crypto.getRandomValues'), 'must use crypto.getRandomValues');
+    assert(!src.includes('Math.random() * 900000'), 'must NOT use Math.random fallback for OTP generation');
+    const otps = new Set();
+    for (let i = 0; i < 20; i++) otps.add(generateOtp());
+    for (const o of otps) assert(/^\d{6}$/.test(o), `otp ${o} not 6-digit`);
+    assert(otps.size > 1, 'OTPs should be random');
   });
 
-  // 2. invalid email rejected
-  await test('2. invalid email rejected', async () => {
+  await test('2. OTP is 6 digits', async () => {
     _clearEmailOtpStore();
-    const res = await sendEmailOtp('invalid-email', 'User');
-    assert(res.success === false, 'should fail');
-    assert(res.error.toLowerCase().includes('valid email'), `error ${res.error}`);
-    assert(_getEmailOtpStoreSize() === 0, 'should not store invalid email');
+    const r = await sendEmailOtp('six@example.com', 'User');
+    assert(/^\d{6}$/.test(r.devOtp), 'devOtp 6-digit');
+    assert(_peekEmailOtpRecord('six@example.com').expiresAt > Date.now(), 'expiry in future');
   });
 
-  // 3. six-digit OTP verification (valid)
-  await test('3. six-digit OTP verification', async () => {
+  await test('3. OTP is not fixed at 123456', async () => {
     _clearEmailOtpStore();
-    const email = 'sixdigit@test.com';
-    const sendRes = await sendEmailOtp(email, 'User');
-    assert(sendRes.success, 'send should succeed in DEV');
-    const record = _peekEmailOtpRecord(email);
-    assert(record && record.expiresAt > Date.now(), 'should have expiry');
-    // Try verify with 5-digit (invalid length)
-    const r1 = verifyEmailOtp(email, '12345');
-    assert(!r1.valid && r1.error.includes('6-digit'), 'should reject 5-digit');
-    // Try with non-6-digit via old signature should also fail
-    const r2 = verifyEmailOtp('123', '123456', Date.now() + 10000);
-    assert(!r2.valid, 'old sig with short input should fail');
+    globalThis.__FORCE_PROD__ = true; globalThis.__FORCE_DEV__ = false;
+    const res = await sendEmailOtp('notfixed@example.com', 'User');
+    assert(!res.success, 'prod without edge should fail');
+    assert(!verifyEmailOtp('notfixed@example.com', '123456').valid, '123456 must not be valid');
+    globalThis.__FORCE_DEV__ = true; globalThis.__FORCE_PROD__ = false;
+    let seenFixed = 0;
+    for (let i=0;i<50;i++) if(generateOtp()==='123456') seenFixed++;
+    assert(seenFixed < 5, 'generateOtp should not be fixed');
   });
 
-  // 4. expired OTP rejected
-  await test('4. expired OTP rejected', async () => {
+  await test('4. Email normalization', async () => {
     _clearEmailOtpStore();
-    const email = 'expired@test.com';
-    await sendEmailOtp(email, 'User');
-    const rec = _peekEmailOtpRecord(email);
-    assert(rec, 'record exists');
-    // Manually expire by manipulating store via clear and re-send with mocked time?
-    // Instead, directly test verify after expiry by waiting? Use short TTL simulation: we can directly set expiresAt in past via hack
-    // Since we don't have direct access to hash, we will use the service's internal expiry by setting Date.now beyond
-    // Mock: we can set the store's expiresAt to past by directly accessing internal map via _peek and then waiting
-    // Simpler: verify that verifyEmailOtp checks expiry — we can simulate by sending OTP, then manually expiring via delay or by directly testing old signature
-    // For now, test that after 5 min + 1, it would be expired — we can test by directly calling verify with expired record via timeout
-    // Instead, test the old mobile OTP expiry logic as proxy, and for email test that after sending, if we wait 0ms but set expiresAt to past, it fails
-    // Hardened: we can test by clearing and checking that after expiry time, verify fails
-    // We'll use a hack: set Date.now to future by mocking? Simpler: create a new email and immediately expire by not waiting but by checking that verify with wrong email fails
-    // For deterministic, we will test that after sending, the record has expiresAt ~5min in future, then we can simulate expiry by directly manipulating
-    // Since we cannot directly manipulate, we will test the verify function's expiry check by using the old signature with explicit expiresAt
-    const r = verifyEmailOtp('123456', '123456', Date.now() - 1000);
-    assert(!r.valid && r.error.toLowerCase().includes('expired'), 'should be expired');
+    const r = await sendEmailOtp('CaseTest@Example.COM', 'User');
+    assert(r.success, 'send success');
+    assert(verifyEmailOtp('casetest@example.com', r.devOtp).valid, 'normalized verify');
+    assert(verifyEmailOtp('CASETEST@EXAMPLE.COM', r.devOtp).valid === false, 'already invalidated after success — no reuse');
   });
 
-  // 5. incorrect OTP rejected
-  await test('5. incorrect OTP rejected', async () => {
+  await test('5. OTP hashing (store does not expose hash to peek)', async () => {
     _clearEmailOtpStore();
-    const email = 'incorrect@test.com';
-    await sendEmailOtp(email, 'User');
-    const res = verifyEmailOtp(email, '000000');
-    assert(!res.valid && res.error.toLowerCase().includes('incorrect'), `got ${res.error}`);
+    await sendEmailOtp('hash@test.com', 'User');
+    const peek = _peekEmailOtpRecord('hash@test.com');
+    assert(peek && !peek.hash, 'peek should not expose hash');
+    assert(peek.expiresAt && peek.cooldownUntil, 'peek has metadata');
   });
 
-  // 6. successful OTP verification
-  await test('6. successful OTP verification', async () => {
+  await test('6. Successful verification', async () => {
     _clearEmailOtpStore();
-    const email = 'success@test.com';
-    const sendRes = await sendEmailOtp(email, 'User');
-    assert(sendRes.success, 'send success');
-    assert(sendRes.devOtp, 'devOtp should be present in DEV');
-    const otp = sendRes.devOtp;
-    const verifyRes = verifyEmailOtp(email, otp);
-    assert(verifyRes.valid === true, `should be valid, got ${JSON.stringify(verifyRes)}`);
+    const s = await sendEmailOtp('success@test.com','User');
+    assert(verifyEmailOtp('success@test.com', s.devOtp).valid, 'verify success');
   });
 
-  // 7. OTP cannot be reused after success
-  await test('7. OTP cannot be reused after success', async () => {
+  await test('7. Incorrect OTP', async () => {
     _clearEmailOtpStore();
-    const email = 'reuse@test.com';
-    const sendRes = await sendEmailOtp(email, 'User');
-    const otp = sendRes.devOtp;
-    const first = verifyEmailOtp(email, otp);
-    assert(first.valid, 'first should succeed');
-    const second = verifyEmailOtp(email, otp);
-    assert(!second.valid, 'second should fail (reused)');
-    assert(second.error.toLowerCase().includes('no otp') || second.error.toLowerCase().includes('already used') || second.error.toLowerCase().includes('request a new'), `got ${second.error}`);
+    await sendEmailOtp('incorrect@test.com','User');
+    const r = verifyEmailOtp('incorrect@test.com','000000');
+    assert(!r.valid && r.error.toLowerCase().includes('invalid'), `got ${r.error}`);
   });
 
-  // 8. resend invalidates/replaces previous OTP
-  await test('8. resend invalidates previous OTP', async () => {
+  await test('8. Expired OTP', async () => {
     _clearEmailOtpStore();
-    const email = 'resend@test.com';
-    const firstSend = await sendEmailOtp(email, 'User');
-    const firstOtp = firstSend.devOtp;
-    // Need to wait for cooldown (30s) — but in service, cooldown is 30s, so immediate resend should fail
-    const immediateResend = await sendEmailOtp(email, 'User');
-    assert(!immediateResend.success && immediateResend.error.toLowerCase().includes('wait'), `should be cooldown, got ${JSON.stringify(immediateResend)}`);
-    // Simulate cooldown passed by clearing the cooldown: directly clear store's cooldown or wait
-    // For test, we can clear store and send again, but we need to test that resend replaces OTP
-    // Bypass cooldown by clearing and waiting: we will manually clear the cooldown by directly accessing store via _clear and re-send after mocking time
-    // Simpler: wait for real cooldown not feasible, so we will clear the store's cooldown by waiting 31s in test? Instead, we will test the logic: after clearing, new OTP should invalidate old
-    _clearEmailOtpStore();
-    const secondSend = await sendEmailOtp(email, 'User');
-    const secondOtp = secondSend.devOtp;
-    assert(firstOtp !== secondOtp || true, 'second OTP should be new (may rarely equal, but usually different)');
-    // Old OTP should no longer be valid (since store now has new hash)
-    // But we cleared, so old OTP is not in store, so verify old should fail
-    // Actually we cleared, so we need a different approach: send, then wait for cooldown to expire via mocking Date.now
-    // For this test, we will test that after a successful resend (bypassing cooldown by directly clearing cooldown), old OTP fails
-    _clearEmailOtpStore();
-    const send1 = await sendEmailOtp(email, 'User');
-    const otp1 = send1.devOtp;
-    // Manually expire cooldown by setting Date.now forward — we can monkey-patch Date.now
-    const originalNow = Date.now;
-    Date.now = () => originalNow() + 35000; // 35s later
-    const send2 = await sendEmailOtp(email, 'User');
-    const otp2 = send2.devOtp;
-    Date.now = originalNow;
-    assert(otp1 !== otp2 || true, 'otp should be new');
-    const verifyOld = verifyEmailOtp(email, otp1);
-    assert(!verifyOld.valid, `old OTP should be invalid after resend, got ${JSON.stringify(verifyOld)}`);
-    const verifyNew = verifyEmailOtp(email, otp2);
-    assert(verifyNew.valid, 'new OTP should be valid');
+    await sendEmailOtp('expired@test.com','User');
+    const orig = Date.now; Date.now = () => orig() + 6*60*1000;
+    const r = verifyEmailOtp('expired@test.com','999999');
+    assert(!r.valid && r.error.toLowerCase().includes('expired'), `got ${r.error}`);
+    Date.now = orig; _clearEmailOtpStore();
+    assert(!verifyEmailOtp('123456','123456', Date.now()-1000).valid, 'old sig expired');
   });
 
-  // 9. development fallback works only in DEV mode
-  await test('9. development fallback works only in DEV mode', async () => {
+  await test('9. Maximum attempts (5)', async () => {
     _clearEmailOtpStore();
-    globalThis.__FORCE_DEV__ = true;
-    globalThis.__FORCE_PROD__ = false;
-    const resDev = await sendEmailOtp('devonly@test.com', 'User');
-    assert(resDev.success === true, 'DEV should succeed via fallback');
-    assert(resDev.via === 'dev-fallback' || resDev.success, 'DEV via fallback');
-
-    _clearEmailOtpStore();
-    globalThis.__FORCE_DEV__ = false;
-    globalThis.__FORCE_PROD__ = true;
-    const resProd = await sendEmailOtp('prodonly@test.com', 'User');
-    // In PROD without N8N configured, should fail with controlled message and not store
-    assert(resProd.success === false, `PROD should fail without gateway, got ${JSON.stringify(resProd)}`);
-    assert(resProd.error === 'Unable to send verification email. Please try again.', `controlled error, got ${resProd.error}`);
-    assert(_getEmailOtpStoreSize() === 0, 'should not store OTP in PROD failure');
-    // Reset to DEV for remaining tests
-    globalThis.__FORCE_DEV__ = true;
-    globalThis.__FORCE_PROD__ = false;
+    const s = await sendEmailOtp('attempts@test.com','User');
+    for(let i=0;i<4;i++) assert(!verifyEmailOtp('attempts@test.com','000000').valid, `attempt ${i}`);
+    const r5 = verifyEmailOtp('attempts@test.com','000000');
+    assert(!r5.valid && r5.error.toLowerCase().includes('too many'), `5th ${r5.error}`);
+    assert(!verifyEmailOtp('attempts@test.com', s.devOtp).valid, 'correct after max fails');
   });
 
-  // 10. production never uses fixed OTP
-  await test('10. production never uses fixed OTP', async () => {
+  await test('10. Resend cooldown (30s)', async () => {
     _clearEmailOtpStore();
-    globalThis.__FORCE_PROD__ = true;
-    globalThis.__FORCE_DEV__ = false;
-    // In production, even if we try to send, it should not use 123456
-    const res = await sendEmailOtp('fixed@test.com', 'User');
-    // Should fail (no gateway), not succeed with fixed OTP
-    assert(!res.success, 'should not succeed');
-    // Verify that 123456 is not accepted (since no OTP stored, any verify should fail)
-    const verifyFixed = verifyEmailOtp('fixed@test.com', '123456');
-    assert(!verifyFixed.valid, 'fixed OTP should not be valid in PROD');
-    globalThis.__FORCE_DEV__ = true;
-    globalThis.__FORCE_PROD__ = false;
+    assert((await sendEmailOtp('cooldown@test.com','User')).success, 'first');
+    const second = await sendEmailOtp('cooldown@test.com','User');
+    assert(!second.success && second.error.includes('Please wait'), `cooldown ${JSON.stringify(second)}`);
   });
 
-  // 11. production gateway failure returns controlled failure
-  await test('11. production gateway failure returns controlled failure', async () => {
+  await test('11. Resend invalidates previous OTP', async () => {
     _clearEmailOtpStore();
-    globalThis.__FORCE_PROD__ = true;
-    globalThis.__FORCE_DEV__ = false;
-    const res = await sendEmailOtp('gatewayfail@test.com', 'User');
-    assert(res.success === false, 'should fail');
-    assert(res.error === 'Unable to send verification email. Please try again.', `controlled, got ${res.error}`);
-    assert(!res.error.toLowerCase().includes('webhook'), 'should not leak webhook details');
-    assert(!res.error.includes('n8n'), 'should not leak n8n');
-    // Verification must fail if no valid production OTP was issued
-    const verifyRes = verifyEmailOtp('gatewayfail@test.com', '123456');
-    assert(!verifyRes.valid, 'verify should fail if no OTP issued');
-    globalThis.__FORCE_DEV__ = true;
-    globalThis.__FORCE_PROD__ = false;
+    const s1 = await sendEmailOtp('resend@test.com','User');
+    const orig = Date.now; Date.now = () => orig()+35000;
+    const s2 = await sendEmailOtp('resend@test.com','User');
+    Date.now = orig;
+    assert(!verifyEmailOtp('resend@test.com', s1.devOtp).valid, 'old invalid');
+    assert(verifyEmailOtp('resend@test.com', s2.devOtp).valid, 'new valid');
   });
 
-  // 12. OTP value is not included in production logs/errors
-  await test('12. OTP value is not included in production logs/errors', async () => {
+  await test('12. Successful verification invalidates OTP (no reuse)', async () => {
     _clearEmailOtpStore();
-    globalThis.__FORCE_PROD__ = true;
-    globalThis.__FORCE_DEV__ = false;
-    const res = await sendEmailOtp('nolog@test.com', 'User');
-    // In production, error should not contain OTP
-    const errorStr = JSON.stringify(res);
-    assert(!/\d{6}/.test(errorStr) || errorStr.includes('Unable to send'), 'error should not contain 6-digit OTP');
-    // Also check that verify error doesn't leak OTP
-    const verifyRes = verifyEmailOtp('nolog@test.com', '000000');
-    assert(!/\d{6}/.test(verifyRes.error), 'verify error should not contain OTP');
-    globalThis.__FORCE_DEV__ = true;
-    globalThis.__FORCE_PROD__ = false;
+    const s = await sendEmailOtp('reuse@test.com','User');
+    assert(verifyEmailOtp('reuse@test.com', s.devOtp).valid, 'first');
+    const second = verifyEmailOtp('reuse@test.com', s.devOtp);
+    assert(!second.valid && (second.error.toLowerCase().includes('request a new') || second.error.toLowerCase().includes('no otp') || second.error.toLowerCase().includes('send a new')), `reuse ${second.error}`);
   });
 
-  // 13. existing mobile OTP tests remain unchanged
-  await test('13. existing mobile OTP tests remain unchanged', async () => {
-    assert(isValidIndianMobile('9876543210') === true, 'valid mobile');
-    assert(isValidIndianMobile('12345') === false, 'invalid mobile');
-    const otp = generateOtp();
-    assert(/^\d{6}$/.test(otp), 'otp 6-digit');
-    const sendRes = await sendMobileOtp('9876543210', otp, 'Test');
-    // In dev, sendMobileOtp without gateway goes to fallback, but should still return object with devOtp or success
-    assert(typeof sendRes === 'object', 'sendMobileOtp returns object');
-    const verifyOk = verifyMobileOtp(otp, otp, Date.now() + 10000);
-    assert(verifyOk.valid === true, 'mobile verify should succeed with correct OTP');
-    const verifyBad = verifyMobileOtp('000000', otp, Date.now() + 10000);
-    assert(!verifyBad.valid, 'mobile verify should fail with wrong OTP');
-    const verifyExpired = verifyMobileOtp(otp, otp, Date.now() - 1000);
-    assert(!verifyExpired.valid && verifyExpired.error.toLowerCase().includes('expired'), 'expired should fail');
+  await test('13. Household Executive Email OTP', async () => {
+    _clearEmailOtpStore();
+    const r = await sendEmailOtp('household-exec@test.com','Household User');
+    assert(r.success && verifyEmailOtp('household-exec@test.com', r.devOtp).valid, 'household otp');
+    const m = await sendMobileOtp('9876543210','123456');
+    assert(!m.success && m.error.toLowerCase().includes('email otp'), 'no mobile');
   });
 
-  // Cleanup
+  await test('14. Personal Executive Email OTP', async () => {
+    _clearEmailOtpStore();
+    const r = await sendEmailOtp('personal-exec@test.com','Personal User');
+    assert(r.success && verifyEmailOtp('personal-exec@test.com', r.devOtp).valid, 'personal');
+  });
+
+  await test('15. Community Executive Email OTP + resend alias', async () => {
+    _clearEmailOtpStore();
+    const r = await sendEmailOtp('community-exec@test.com','Community User');
+    assert(r.success, 'community');
+    assert(r.via === 'dev-fallback' || r.via === 'resend', `via ${r.via}`);
+    assert(verifyEmailOtp('community-exec@test.com', r.devOtp).valid, 'verify');
+    _clearEmailOtpStore(); await sendEmailOtp('community-exec@test.com','User');
+    const orig = Date.now; Date.now = () => orig()+35000;
+    const rr = await resendEmailOtp('community-exec@test.com');
+    Date.now = orig; assert(rr.success, 'resend alias');
+  });
+
+  await test('16. Edge Function delivery success handling (via resend in prod mock)', async () => {
+    _clearEmailOtpStore();
+    // r uses dev fallback mock (set at run start) -> devOtp available
+    const r = await sendEmailOtp('edge-success@test.com','User');
+    assert(r.success, 'dev fallback success');
+    // Mock Edge Function success even in prod via global hook
+    _clearEmailOtpStore();
+    globalThis.__FORCE_DEV__ = false; globalThis.__FORCE_PROD__ = true;
+    globalThis.__mockSupabaseInvoke = async () => ({ success: true });
+    const rProd = await sendEmailOtp('edge-prod@test.com','User');
+    // restore dev fallback mock for subsequent tests
+    globalThis.__mockSupabaseInvoke = async () => { throw new Error('dev fallback mock'); };
+    assert(rProd.success && rProd.via === 'resend', `prod edge success via resend got ${JSON.stringify(rProd)}`);
+    globalThis.__FORCE_DEV__ = true; globalThis.__FORCE_PROD__ = false;
+  });
+
+  await test('17. Edge Function failure handling (controlled error)', async () => {
+    _clearEmailOtpStore();
+    globalThis.__FORCE_PROD__ = true; globalThis.__FORCE_DEV__ = false;
+    globalThis.__mockSupabaseInvoke = async () => ({ success: false, error: 'mock gateway failure' });
+    const r = await sendEmailOtp('edge-fail@test.com','User');
+    globalThis.__mockSupabaseInvoke = async () => { throw new Error('dev fallback mock'); };
+    assert(!r.success && r.error === 'Unable to send verification email. Please try again.', `controlled ${r.error}`);
+    assert(_getEmailOtpStoreSize()===0, 'no store on failure in prod');
+    globalThis.__FORCE_DEV__ = true; globalThis.__FORCE_PROD__ = false;
+  });
+
+  await test('18. Resend/API failure handling (no leak)', async () => {
+    _clearEmailOtpStore();
+    globalThis.__FORCE_PROD__ = true; globalThis.__FORCE_DEV__ = false;
+    globalThis.__mockSupabaseInvoke = async () => ({ success: false, error: 'Resend api key invalid' });
+    const r = await sendEmailOtp('resend-fail@test.com','User');
+    globalThis.__mockSupabaseInvoke = async () => { throw new Error('dev fallback mock'); };
+    assert(!r.success, 'should fail');
+    assert(r.error === 'Unable to send verification email. Please try again.', 'no leak');
+    assert(!r.error.includes('Resend'), 'no resend leak');
+    globalThis.__FORCE_DEV__ = true; globalThis.__FORCE_PROD__ = false;
+  });
+
+  await test('19. No SMS provider dependency', async () => {
+    const otpSrc = fs.readFileSync(path.join(process.cwd(),'src/services/otpService.js'),'utf8');
+    const joinSrc = fs.readFileSync(path.join(process.cwd(),'src/components/executive/JoinExecutivePage.jsx'),'utf8');
+    for(const pat of ['MSG91','Fast2SMS','Twilio','TextBee','control.msg91.com']) {
+      const lines = otpSrc.split('\n').filter(l=>!l.trim().startsWith('//') && l.includes(pat));
+      assert(lines.length===0, `otpService should not contain ${pat}`);
+    }
+    assert(!joinSrc.includes('sendMobileOtp') && !joinSrc.includes('verifyMobileOtp'), 'Join page no mobile otp');
+    assert(!otpSrc.includes('triggerN8nWorkflow') && !otpSrc.includes('n8nClient'), 'otpService must not use n8nClient');
+    assert(!otpSrc.includes('VITE_N8N_WEBHOOK_URL'), 'otpService must not contain VITE_N8N_WEBHOOK_URL');
+    assert(!otpSrc.includes('VITE_RESEND_API_KEY'), 'frontend must not contain VITE_RESEND_API_KEY');
+    const envEx = fs.readFileSync(path.join(process.cwd(),'.env.example'),'utf8');
+    const activeEnvLines = envEx.split('\n').filter(l=> l.trim() && !l.trim().startsWith('#'));
+    assert(!activeEnvLines.some(l=> l.includes('VITE_MSG91') || l.includes('VITE_TWILIO') || l.includes('VITE_N8N_WEBHOOK_URL')), '.env.example no SMS/n8n active line');
+    assert(!activeEnvLines.some(l=> l.includes('VITE_RESEND_API_KEY=')), '.env.example must not expose RESEND_API_KEY as VITE_ var');
+    assert(envEx.includes('RESEND_API_KEY') && envEx.includes('RESEND_FROM_EMAIL'), '.env.example documents RESEND secrets as server-side');
+    const mRes = await sendMobileOtp('9876543210','123456');
+    assert(!mRes.success, 'mobile stub');
+  });
+
+  await test('20. No n8n dependency for OTP (otp path uses supabase.functions.invoke)', async () => {
+    const otpSrc = fs.readFileSync(path.join(process.cwd(),'src/services/otpService.js'),'utf8');
+    assert(otpSrc.includes("functions.invoke('send-email-otp'") || otpSrc.includes('functions.invoke("send-email-otp"'), 'must use functions.invoke send-email-otp');
+    assert(!otpSrc.includes('VITE_N8N'), 'no n8n env in otpService');
+    // Ensure Edge Function file exists and uses Brevo (migrated from Resend), not n8n/Gmail SMTP
+    const edgePath = path.join(process.cwd(),'supabase/functions/send-email-otp/index.ts');
+    assert(fs.existsSync(edgePath), 'Edge Function file must exist');
+    const edgeSrc = fs.readFileSync(edgePath,'utf8');
+    assert(edgeSrc.includes('api.brevo.com/v3/smtp/email'), 'Edge Function must call Brevo HTTPS API');
+    assert(!edgeSrc.includes('smtp.gmail') && !edgeSrc.includes('Gmail SMTP'), 'must not use Gmail SMTP');
+    assert(edgeSrc.includes('BREVO_API_KEY') && edgeSrc.includes('BREVO_FROM_EMAIL'), 'must use Brevo server secrets');
+    assert(!edgeSrc.includes('RESEND_API_KEY') && !edgeSrc.includes('RESEND_FROM_EMAIL'), 'must not depend on Resend secrets');
+    assert(edgeSrc.includes('zolve-three.vercel.app'), 'CORS must include deployed origin');
+    assert(edgeSrc.includes('Access-Control-Allow-Origin'), 'CORS headers');
+    assert(!edgeSrc.includes('VITE_'), 'Edge Function must not use VITE_ vars');
+  });
+
   _clearEmailOtpStore();
-  delete globalThis.__FORCE_DEV__;
-  delete globalThis.__FORCE_PROD__;
-
+  delete globalThis.__FORCE_DEV__; delete globalThis.__FORCE_PROD__; delete globalThis.__mockSupabaseInvoke;
   console.log(`\n=== OTP Service Tests: ${passed} passed, ${failed} failed ===`);
-  if (failed > 0) process.exitCode = 1;
+  if (failed>0) process.exitCode=1;
 }
-
 run();

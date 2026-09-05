@@ -154,19 +154,127 @@ export const AppProvider = ({ children }) => {
     setSavedAddresses(prev => prev.map(a=> ({ ...a, isDefault: a.id===id })))
   }
 
-  const currentUser = supaProfile ? {
-    id: supaProfile.id,
-    name: supaProfile.full_name,
-    email: supaProfile.email,
-    phone: supaProfile.phone || supaUser?.user_metadata?.phone || null,
-    phone_verified: supaProfile.phone_verified || false,
-    role: supaProfile.role,
-    avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
-    location: savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || null,
-    isCoopMember: supaProfile.role === 'provider',
-    savedAddresses,
-  } : null
-  const activeRole = supaProfile?.role || 'customer'
+  const [executiveApplications, setExecutiveApplications] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_exec_apps`);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Hydrate executive applications from Supabase for current user (so refresh shows dashboard)
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supaUser?.id) return
+    let cancelled = false
+    ExecutiveApplicationService.fetchMyApplications(supaUser).then(apps => {
+      if (cancelled || !apps.length) return
+      setExecutiveApplications(prev => {
+        const prevIds = new Set(prev.map(p => p.id))
+        const incoming = apps.map(a => ({
+          id: a.id,
+          applicantId: a.applicantId,
+          applicant_id: a.applicantId,
+          applicantName: a.fullName,
+          fullName: a.fullName,
+          applicantEmail: a.email,
+          email: a.email,
+          applicantPhone: a.phone,
+          phone: a.phone,
+          vertical: a.vertical,
+          services: a.services,
+          status: a.status === 'approved' ? 'active' : a.status === 'pending' ? 'pending_approval' : a.status,
+          canonicalStatus: a.status,
+          createdAt: a.createdAt,
+          approvedAt: a.approvedAt,
+          rejectionReason: a.rejectionReason,
+        }))
+        const merged = [...prev]
+        for (const inc of incoming) {
+          if (!prevIds.has(inc.id)) merged.unshift(inc)
+          else {
+            const idx = merged.findIndex(p => p.id === inc.id)
+            if (idx !== -1) merged[idx] = { ...merged[idx], ...inc }
+          }
+        }
+        return merged
+      })
+    }).catch(()=>{})
+    return () => { cancelled = true }
+  }, [supaUser?.id])
+
+  const verticalServices = React.useCallback((vid) => EXECUTIVE_VERTICALS.find(v => v.id === vid)?.services || [], [])
+
+  // Executive session derived from executive_applications (Supabase or local fallback)
+  // Household/Personal auto-approved should immediately become executive for dashboard
+  const activeExecutiveApp = React.useMemo(() => {
+    if (!supaUser?.id && !supaProfile?.email) return null
+    const mine = executiveApplications.filter(a => {
+      if (supaUser?.id && (a.applicantId === supaUser.id || a.applicant_id === supaUser.id)) return true
+      if (supaProfile?.email && (a.applicantEmail === supaProfile.email || a.email === supaProfile.email)) return true
+      return false
+    })
+    // Prefer approved/active over pending
+    const approved = mine.find(a => {
+      const s = String(a.canonicalStatus || a.status || '').toLowerCase()
+      return s === 'approved' || s === 'active'
+    })
+    if (approved) return approved
+    return mine[0] || null
+  }, [executiveApplications, supaUser?.id, supaProfile?.email])
+
+  const isExecutiveActive = React.useMemo(() => {
+    if (!activeExecutiveApp) return false
+    const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
+    return s === 'approved' || s === 'active'
+  }, [activeExecutiveApp])
+
+  const isExecutivePendingApp = React.useMemo(() => {
+    if (!activeExecutiveApp) return false
+    const s = String(activeExecutiveApp.canonicalStatus || activeExecutiveApp.status || '').toLowerCase()
+    return s === 'pending' || s === 'pending_approval'
+  }, [activeExecutiveApp])
+
+  const currentUser = React.useMemo(() => {
+    if (!supaProfile) return null
+    const base = {
+      id: supaProfile.id,
+      name: supaProfile.full_name,
+      email: supaProfile.email,
+      phone: supaProfile.phone || supaUser?.user_metadata?.phone || null,
+      phone_verified: supaProfile.phone_verified || false,
+      role: supaProfile.role,
+      avatar: supaProfile.avatar_url || supaUser?.user_metadata?.avatar_url || (supaProfile.role === 'provider' ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'),
+      location: savedAddresses.find(a=>a.isDefault)?.fullAddress || savedAddresses[0]?.fullAddress || null,
+      isCoopMember: supaProfile.role === 'provider',
+      savedAddresses,
+    }
+    if (isExecutiveActive && activeExecutiveApp) {
+      return {
+        ...base,
+        role: 'executive',
+        executiveVertical: activeExecutiveApp.vertical,
+        executiveStatus: 'active',
+        mobileVerified: true,
+        mobileVerifiedAt: new Date().toISOString(),
+        assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
+        executiveApplicationId: activeExecutiveApp.id,
+      }
+    }
+    if (isExecutivePendingApp && activeExecutiveApp) {
+      return {
+        ...base,
+        role: 'executive',
+        executiveVertical: activeExecutiveApp.vertical,
+        executiveStatus: 'pending_approval',
+        mobileVerified: true,
+        assignedServices: activeExecutiveApp.services || verticalServices(activeExecutiveApp.vertical) || [],
+        executiveApplicationId: activeExecutiveApp.id,
+      }
+    }
+    return base
+  }, [supaProfile, supaUser, savedAddresses, activeExecutiveApp, isExecutiveActive, isExecutivePendingApp, verticalServices])
+
+  const activeRole = React.useMemo(() => {
+    if (isExecutiveActive || isExecutivePendingApp) return 'executive'
+    return supaProfile?.role || 'customer'
+  }, [supaProfile?.role, isExecutiveActive, isExecutivePendingApp])
   // Keep setter stubs for backward compat (no-op, auth is Supabase)
   const setCurrentUser = () => { console.warn('[AppContext] setCurrentUser is deprecated — use Supabase Auth') }
   const setActiveRole = () => { console.warn('[AppContext] setActiveRole is deprecated — role from profiles') }
@@ -203,11 +311,6 @@ export const AppProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
   const [supportTicketsLoading, setSupportTicketsLoading] = useState(false);
-
-  const [executiveApplications, setExecutiveApplications] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_exec_apps`);
-    return saved ? JSON.parse(saved) : [];
-  });
 
   // Community — persisted per-browser joins + real participant counts
   const [joinedProjects, setJoinedProjects] = useState(() => {
@@ -878,13 +981,17 @@ export const AppProvider = ({ children }) => {
         localApp.id = res.id
       } catch (e) {
         supaError = e
+        // Do NOT silently fallback when auth is required — admin would never see the application
+        if (e?.message && String(e.message).toLowerCase().includes('sign in')) {
+          throw e
+        }
         console.warn('[registerExecutive] Supabase insert failed, falling back to local', e?.message || e)
         setExecutiveApplications((prev) => [localApp, ...prev]);
       }
     } else {
-      // No Supabase session — fallback to local only (dev mode). Still show pending UI, but remind to sign in for real persistence.
+      // No Supabase session — only allow local fallback when Supabase is not configured (pure dev demo)
       if (isSupabaseConfigured() && !supaUser?.id) {
-        console.warn('[registerExecutive] No authenticated user — application stored locally only. Sign in for persisted approval queue.')
+        throw new Error('Please sign in to register as executive. Your application must be linked to your account for admin approval.')
       }
       setExecutiveApplications((prev) => [localApp, ...prev]);
     }
@@ -914,14 +1021,11 @@ export const AppProvider = ({ children }) => {
     return { app, executiveUser, requiresApproval, supaError };
   };
 
-  const verticalServices = (vid) => EXECUTIVE_VERTICALS.find(v => v.id === vid)?.services || []
-
   const approveExecutiveApplication = async (appId) => {
     // Try Supabase first
     if (isSupabaseConfigured() && supaUser?.id) {
       try {
-        // Check if admin
-        const isAdmin = supaProfile?.role === 'admin'
+        const isAdmin = supaProfile?.role === 'admin' || supaProfile?.role === 'society_admin'
         if (isAdmin) {
           await ExecutiveApplicationService.approveApplication(appId, supaUser)
         } else {
@@ -943,7 +1047,8 @@ export const AppProvider = ({ children }) => {
   const rejectExecutiveApplication = async (appId, reason) => {
     if (isSupabaseConfigured() && supaUser?.id) {
       try {
-        if (supaProfile?.role === 'admin' && reason) {
+        const isAdmin = supaProfile?.role === 'admin' || supaProfile?.role === 'society_admin'
+        if (isAdmin && reason) {
           await ExecutiveApplicationService.rejectApplication(appId, supaUser, reason)
         } else if (reason) {
           try { await ExecutiveApplicationService.rejectApplication(appId, supaUser, reason) } catch {}

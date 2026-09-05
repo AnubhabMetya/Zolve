@@ -14,7 +14,7 @@ export const ExecutiveDashboard = () => {
         <p className="text-sm text-slate-600">Your Community & Society executive access is awaiting approval. You will be notified once activated.</p>
         <div className="p-3 rounded-xl bg-slate-50 border text-xs text-left">
           <div>Vertical: <strong>{currentUser.executiveVertical}</strong> — Status: <strong className="text-amber-700">{currentUser.executiveStatus}</strong></div>
-          <div className="mt-1">Mobile Verified: {currentUser.mobileVerified ? 'Yes' : 'No'} — Phone: {currentUser.phone}</div>
+          <div className="mt-1">Email Verified: {currentUser.mobileVerified ? 'Yes' : 'No'} — Phone: {currentUser.phone} — Email: {currentUser.email}</div>
         </div>
       </div>
     );
@@ -25,7 +25,7 @@ export const ExecutiveDashboard = () => {
       <div className="bg-white rounded-3xl p-6 border shadow-subtle flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold font-display">Executive Dashboard — {currentUser.executiveVertical}</h1>
-          <p className="text-xs text-slate-500">Mobile verified <ShieldCheck className="w-3 h-3 inline text-coop-600" /> {currentUser.phone} — Assigned: {currentUser.assignedServices?.join(', ')}</p>
+          <p className="text-xs text-slate-500">Email verified <ShieldCheck className="w-3 h-3 inline text-coop-600" /> {currentUser.email} — Phone: {currentUser.phone} — Assigned: {currentUser.assignedServices?.join(', ')}</p>
         </div>
         <span className="px-3 py-1 rounded-full bg-coop-50 text-coop-700 text-xs font-bold border border-coop-200">Active</span>
       </div>
@@ -42,7 +42,7 @@ export const ExecutiveDashboard = () => {
                   {b.customerPhone && <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1"><Mail className="w-3 h-3" /> Contact via phone for arrival confirmation</div>}
                 </div>
               </div>
-              <button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">View Details (OTP verified)</button>
+              <button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">View Details (Email OTP verified)</button>
             </div>
           ))}
         </div>

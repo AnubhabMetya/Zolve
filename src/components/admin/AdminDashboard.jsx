@@ -27,7 +27,7 @@ import { EmergencyDispatch } from '../ai/EmergencyDispatch';
 import { loadForecastPredictions } from '../../services/aiDataLoader.js';
 import { useAuth } from '../../context/AuthContext';
 import { ExecutiveApplicationService } from '../../services/executiveApplicationService';
-import { isSupabaseConfigured } from '../../lib/supabaseClient';
+import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
 
 export const AdminDashboard = () => {
   const {
@@ -113,6 +113,28 @@ export const AdminDashboard = () => {
   React.useEffect(() => {
     if (activeAdminTab === 'executive_approvals') fetchExecutiveApprovals();
   }, [activeAdminTab, fetchExecutiveApprovals]);
+
+  // Fetch count for badge even before opening tab, and subscribe realtime so admin gets message instantly
+  React.useEffect(() => {
+    if (!isAdmin || !isSupabaseConfigured()) return;
+    fetchExecutiveApprovals();
+    let channel = null;
+    try {
+      channel = supabase
+        .channel('exec-approvals-admin')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'executive_applications' }, (payload) => {
+          // Refresh list and notify admin
+          fetchExecutiveApprovals();
+          if (payload.eventType === 'INSERT' && payload.new?.status === 'pending') {
+            const v = payload.new.vertical || 'community';
+            const name = payload.new.full_name || 'New applicant';
+            addNotification({ title: 'New Executive Approval Required', message: `${name} applied for ${v} — Community & Society Services. Review in Admin → Executive Approvals.`, type: 'system' });
+          }
+        })
+        .subscribe();
+    } catch {}
+    return () => { try { if (channel) supabase.removeChannel(channel); } catch {} };
+  }, [isAdmin, fetchExecutiveApprovals, addNotification]);
 
   const handleApproveExec = async (appId) => {
     if (!isAdmin) return;

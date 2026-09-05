@@ -61,12 +61,11 @@ export const ExecutiveApplicationService = {
     const requiresApproval = vertical === 'community'
     const status = requiresApproval ? 'pending' : 'approved'
 
-    if (!isSupabaseConfigured() || !supaUser?.id) {
-      // Fallback to localStorage when Supabase not configured or not authenticated (for dev)
-      // This is not source of truth in production; Supabase path is primary
+    if (!isSupabaseConfigured()) {
+      // Dev-only fallback when Supabase not configured (no DB available) — still local
       return {
         id: `exec-app-${Date.now()}`,
-        applicantId: supaUser?.id || null,
+        applicantId: supaUser?.id || `local-${Date.now()}`,
         fullName,
         applicantName: fullName,
         email,
@@ -81,6 +80,10 @@ export const ExecutiveApplicationService = {
         _fallback: true,
         requiresApproval,
       }
+    }
+    if (!supaUser?.id) {
+      // Supabase is configured but user not authenticated → must sign in so admin can see applicant_id = auth.uid()
+      throw new Error('Please sign in to register as executive. Your application must be linked to your account for admin approval.')
     }
 
     const row = {

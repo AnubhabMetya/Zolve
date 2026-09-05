@@ -791,7 +791,7 @@ export const BookingModal = () => {
                   <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <Phone className="w-4 h-4 text-brand-700" /> Mobile Number <span className="text-red-500">*</span>
                   </label>
-                  <p className="text-[11px] text-slate-500 mt-1">10 digits, starts 6-9. This is how the executive reaches you for OTP & arrival.</p>
+                  <p className="text-[11px] text-slate-500 mt-1">10 digits, starts 6-9. This is how the executive reaches you for arrival confirmation.</p>
                   <div className="mt-3 flex gap-2">
                     <div className="flex items-center gap-2 flex-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500">
                       <span className="text-xs font-bold text-slate-500 shrink-0">+91</span>

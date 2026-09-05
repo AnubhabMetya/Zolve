@@ -203,7 +203,7 @@ export function AppContent() {
                   My Bookings ({visibleBookings.length})
                 </h1>
                 <p className="text-xs text-slate-500 mt-1">
-                  Track real-time provider arrival, chat with technicians, and review completed services — only your own orders; executives see only their vertical after mobile OTP verification.
+                    Track real-time provider arrival, chat with technicians, and review completed services — only your own orders; executives see only their vertical after Email OTP verification.
                 </p>
               </div>
             </div>

@@ -5,8 +5,13 @@ import { createClient } from '@supabase/supabase-js'
 const FALLBACK_URL = 'https://axetwdhutpdushmzbycj.supabase.co'
 const FALLBACK_KEY = 'sb_publishable_2GeeSLPkDzqvY_3E-kSYKA_mzr91Qq6'
 const getEnv = () => {
-  const url = ((import.meta.env.VITE_SUPABASE_URL || FALLBACK_URL) || '').trim()
-  const anonKey = ((import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || FALLBACK_KEY) || '').trim()
+  let viteUrl = '', viteKey = '';
+  try { viteUrl = (import.meta && import.meta.env && import.meta.env.VITE_SUPABASE_URL) ? import.meta.env.VITE_SUPABASE_URL : '' } catch {}
+  try { viteKey = (import.meta && import.meta.env && (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)) ? (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY) : '' } catch {}
+  if (!viteUrl) try { viteUrl = (typeof process !== 'undefined' && process.env && process.env.VITE_SUPABASE_URL) ? process.env.VITE_SUPABASE_URL : '' } catch {}
+  if (!viteKey) try { viteKey = (typeof process !== 'undefined' && process.env && process.env.VITE_SUPABASE_PUBLISHABLE_KEY) ? process.env.VITE_SUPABASE_PUBLISHABLE_KEY : '' } catch {}
+  const url = ((viteUrl || FALLBACK_URL) || '').trim()
+  const anonKey = ((viteKey || FALLBACK_KEY) || '').trim()
   return { url, anonKey }
 }
 

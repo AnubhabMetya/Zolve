@@ -565,7 +565,7 @@ export const ProfilePage = () => {
             <button onClick={() => setActiveTab('bookings')} className="text-xs font-bold text-brand-700 dark:text-brand-300 hover:underline">View all in Bookings →</button>
           </div>
           {visible.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">No orders yet. Book a service to see it here. Executives see only vertical orders after mobile OTP.</div>
+            <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">No orders yet. Book a service to see it here. Executives see only vertical orders after Email OTP verification.</div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {visible.slice(0, 6).map((b) => (
