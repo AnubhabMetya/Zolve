@@ -25,6 +25,12 @@ create policy "Applicants can insert own application"
   on public.executive_applications for insert
   with check (applicant_id = auth.uid());
 
+-- Guest executive registration (no sign-in required): allow public insert with applicant_id IS NULL so admin can still review
+drop policy if exists "Guests can insert executive applications" on public.executive_applications;
+create policy "Guests can insert executive applications"
+  on public.executive_applications for insert
+  with check (applicant_id IS NULL and auth.uid() IS NULL);
+
 create policy "Applicants can view own application"
   on public.executive_applications for select
   using (applicant_id = auth.uid());

@@ -957,22 +957,19 @@ export const AppProvider = ({ children }) => {
       createdAt: new Date().toISOString()
     };
 
-    // Try Supabase persistence first when configured and user is authenticated
+    // Try Supabase persistence — guest allowed (applicant_id = null) so admin can approve without sign-in
     let persistedApp = null
     let supaError = null
-    if (isSupabaseConfigured() && supaUser?.id) {
+    if (isSupabaseConfigured()) {
       try {
         const res = await ExecutiveApplicationService.submitApplication(formData, supaUser)
-        // res.status is 'pending' or 'approved' (canonical). Map to legacy for local state compatibility
         persistedApp = res
-        // Create a unified app object that preserves both canonical and legacy status for UI
         const unified = {
           ...localApp,
           id: res.id || localApp.id,
           status: res.status === 'pending' ? 'pending_approval' : res.status === 'approved' ? 'active' : res.status,
-          // also keep canonical for accurate display
           canonicalStatus: res.status,
-          applicantId: res.applicantId || supaUser.id,
+          applicantId: res.applicantId ?? supaUser?.id ?? localApp.applicantId,
           createdAt: res.createdAt || localApp.createdAt,
           services: res.services || verticalServices(vertical),
         }
@@ -981,18 +978,10 @@ export const AppProvider = ({ children }) => {
         localApp.id = res.id
       } catch (e) {
         supaError = e
-        // Do NOT silently fallback when auth is required — admin would never see the application
-        if (e?.message && String(e.message).toLowerCase().includes('sign in')) {
-          throw e
-        }
         console.warn('[registerExecutive] Supabase insert failed, falling back to local', e?.message || e)
         setExecutiveApplications((prev) => [localApp, ...prev]);
       }
     } else {
-      // No Supabase session — only allow local fallback when Supabase is not configured (pure dev demo)
-      if (isSupabaseConfigured() && !supaUser?.id) {
-        throw new Error('Please sign in to register as executive. Your application must be linked to your account for admin approval.')
-      }
       setExecutiveApplications((prev) => [localApp, ...prev]);
     }
 

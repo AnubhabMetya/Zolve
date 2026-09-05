@@ -81,21 +81,20 @@ export const ExecutiveApplicationService = {
         requiresApproval,
       }
     }
-    if (!supaUser?.id) {
-      // Supabase is configured but user not authenticated → must sign in so admin can see applicant_id = auth.uid()
-      throw new Error('Please sign in to register as executive. Your application must be linked to your account for admin approval.')
-    }
+    // Guest registration (no sign-in required) — persist with applicant_id = null so admin can review via RLS "Guests can insert ..."
+    // When user is signed in, applicant_id = auth.uid() for ownership
+    const effectiveApplicantId = supaUser?.id || null
 
     const row = {
-      applicant_id: supaUser.id,
+      applicant_id: effectiveApplicantId,
       full_name: fullName,
       email: email.toLowerCase().trim(),
       phone,
       vertical,
       services,
       status,
-      // approved_by/approved_at remain null for pending; for auto-approved set immediately
-      ...(status === 'approved' ? { approved_by: supaUser.id, approved_at: new Date().toISOString() } : {}),
+      // approved_by/approved_at remain null for pending; for auto-approved set to applicant if signed in, else null
+      ...(status === 'approved' ? { approved_by: effectiveApplicantId, approved_at: new Date().toISOString() } : {}),
     }
     const { data, error } = await supabase.from(TABLE).insert(row).select().single()
     if (error) throw error

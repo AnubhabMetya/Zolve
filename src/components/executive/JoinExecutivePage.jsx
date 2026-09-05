@@ -70,10 +70,6 @@ export const JoinExecutivePage = () => {
 
   const handleSendOtp = async (e) => {
     e.preventDefault();
-    if (isSupabaseConfigured() && !supaUser?.id) {
-      setOtpError('Please sign in to register as executive. Your application must be linked to your account so the admin can approve it.');
-      return;
-    }
     if (!fullName.trim() || !mobileNumber.trim() || !gmailAddress.trim()) { alert('Fill all fields'); return; }
     if (!isValidEmail(gmailAddress)) { alert('Enter valid email address'); return; }
     if (!isValidIndianMobile(mobileNumber)) { alert('Enter valid 10-digit Indian mobile'); return; }
@@ -299,11 +295,6 @@ export const JoinExecutivePage = () => {
             <h2 className="text-lg font-bold">Executive Registration — {selectedVertical.label}</h2>
             <button type="button" onClick={()=>setStep(1)} className="text-xs text-slate-500 underline">Change vertical</button>
           </div>
-          {isSupabaseConfigured() && !supaUser?.id && (
-            <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 text-xs text-sky-800 flex gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" /> Please <a href="/login" className="underline font-bold">sign in</a> before registering. Your Community & Society application must be linked to your account so the admin can approve or reject it.
-            </div>
-          )}
           {selectedVertical.id==='community' && <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex gap-2"><ShieldCheck className="w-4 h-4 shrink-0" /> Community executives require Society Admin approval before accessing society orders.</div>}
           <div><label className="text-xs font-bold">Full Name</label><div className="relative mt-1"><User className="w-4 h-4 absolute left-3 top-3 text-slate-400" /><input required value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="e.g. Arjun Patel" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs" /></div></div>
           <div>
