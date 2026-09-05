@@ -103,11 +103,17 @@ export const AdminDashboard = () => {
     return () => { cancelled = true; };
   }, []);
 
+  // Stabilize unstable dependencies: executiveApplications array and addNotification function are recreated each render
+  const executiveApplicationsRef = React.useRef(executiveApplications);
+  React.useEffect(() => { executiveApplicationsRef.current = executiveApplications; }, [executiveApplications]);
+  const addNotificationRef = React.useRef(addNotification);
+  React.useEffect(() => { addNotificationRef.current = addNotification; }, [addNotification]);
+
   const fetchExecutiveApprovals = React.useCallback(async () => {
     setExecLoading(true); setExecError(null);
     try {
       const remoteData = await ExecutiveApplicationService.fetchPendingApplications();
-      const localPending = (executiveApplications || []).filter(a => {
+      const localPending = (executiveApplicationsRef.current || []).filter(a => {
         const s = String(a.canonicalStatus || a.status || '').toLowerCase();
         return s === 'pending' || s === 'pending_approval';
       });
@@ -121,7 +127,7 @@ export const AdminDashboard = () => {
     } catch (e) {
       setExecError(e?.message || 'Failed to load pending applications');
     } finally { setExecLoading(false); }
-  }, [executiveApplications]);
+  }, []);
 
   React.useEffect(() => {
     if (activeAdminTab === 'executive_approvals') fetchExecutiveApprovals();
@@ -140,7 +146,7 @@ export const AdminDashboard = () => {
             if (payload.eventType === 'INSERT' && payload.new?.status === 'pending') {
               const v = payload.new.vertical || 'community';
               const name = payload.new.full_name || 'New applicant';
-              addNotification({ title: 'New Executive Approval Required', message: `${name} applied for ${v} — Community & Society Services. Review in Admin → Executive Approvals.`, type: 'system' });
+              addNotificationRef.current({ title: 'New Executive Approval Required', message: `${name} applied for ${v} — Community & Society Services. Review in Admin → Executive Approvals.`, type: 'system' });
             }
           })
           .subscribe();
@@ -151,7 +157,7 @@ export const AdminDashboard = () => {
       fetchExecutiveApprovals();
       if (e?.detail?.type === 'EXEC_APP_SUBMITTED') {
         const app = e.detail.application;
-        addNotification({
+        addNotificationRef.current({
           title: 'New Executive Approval Required',
           message: `${app?.fullName || app?.applicantName || 'New applicant'} applied for Community & Society Services. Review in Admin → Executive Approvals.`,
           type: 'system'
@@ -168,7 +174,7 @@ export const AdminDashboard = () => {
           fetchExecutiveApprovals();
           if (msg.data?.type === 'EXEC_APP_SUBMITTED') {
             const app = msg.data.application;
-            addNotification({
+            addNotificationRef.current({
               title: 'New Executive Approval Required',
               message: `${app?.fullName || app?.applicantName || 'New applicant'} applied for Community & Society Services. Review in Admin → Executive Approvals.`,
               type: 'system'
@@ -183,7 +189,7 @@ export const AdminDashboard = () => {
       window.removeEventListener('zolve:executive-sync', onSync);
       try { if (bc) bc.close(); } catch {}
     };
-  }, [fetchExecutiveApprovals, addNotification]);
+  }, [fetchExecutiveApprovals]);
 
   const handleApproveExec = async (appId) => {
     setApprovingId(appId);

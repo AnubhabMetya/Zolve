@@ -67,6 +67,55 @@ export const ExecutiveDashboard = () => {
     setTimeout(() => setChecking(false), 600);
   };
 
+  // All hooks must be called unconditionally before any conditional return (Finding 3)
+  const assignedSkills = currentUser?.assignedServices || [];
+  const execCoords = currentUser?.coordinates || { lat: 22.5726, lng: 88.3639 };
+
+  // Calculate nearby opportunities (strictly <= 50 km and matches at least one assigned skill)
+  const nearbyJobs = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'executive' || isExecutivePending(currentUser) || currentUser.executiveVertical === 'community') return [];
+    return bookings.filter((b) => {
+      if (declinedJobIds?.has(b.id)) return false;
+      const status = String(b.bookingStatus || '').toUpperCase();
+      if (status === 'SERVICE_COMPLETED' || status === 'CANCELLED') return false;
+
+      // Skill match
+      const matchesSkill =
+        assignedSkills.length === 0 ||
+        assignedSkills.some((s) =>
+          s.toLowerCase().includes((b.serviceName || '').toLowerCase()) ||
+          (b.serviceName || '').toLowerCase().includes(s.toLowerCase())
+        );
+      if (!matchesSkill) return false;
+
+      // Distance check: strictly <= 50 km
+      const jobLat = b.coordinates?.lat || b.lat || 22.5726;
+      const jobLng = b.coordinates?.lng || b.lng || 88.3639;
+      const dist = haversineKm(execCoords.lat, execCoords.lng, jobLat, jobLng);
+      return dist <= 50.0;
+    });
+  }, [bookings, declinedJobIds, assignedSkills, execCoords, currentUser]);
+
+  // My Accepted / Active Jobs — restricted to jobs actually assigned to this executive (Finding 4)
+  const myAcceptedJobs = useMemo(() => {
+    if (!currentUser?.id) return [];
+    const myId = currentUser.id;
+    return bookings.filter((b) => {
+      const assignedId = b.assignedExecutiveId || b.assigned_executive_id || b.executiveAssignedId || b.executive_assigned_id || b.assignedExecutive_id;
+      return assignedId === myId;
+    });
+  }, [bookings, currentUser?.id]);
+
+  const completedJobs = useMemo(() => {
+    if (!currentUser?.id) return [];
+    const myId = currentUser.id;
+    return bookings.filter(
+      (b) =>
+        (b.assignedExecutiveId === myId || b.executiveAssignedId === myId || b.assigned_executive_id === myId || b.executive_assigned_id === myId) &&
+        b.bookingStatus === 'SERVICE_COMPLETED'
+    );
+  }, [bookings, currentUser?.id]);
+
   if (!currentUser || currentUser.role !== 'executive') return null;
 
   // 1. PENDING STATE (Community Executive awaiting Society Admin approval)
@@ -154,51 +203,6 @@ export const ExecutiveDashboard = () => {
   }
 
   // 3. HOUSEHOLD & PERSONAL OPERATIONS DASHBOARD
-  const assignedSkills = currentUser.assignedServices || [];
-  const execCoords = currentUser.coordinates || { lat: 22.5726, lng: 88.3639 }; // Defaults to canonical Kolkata coordinates if not yet set
-
-  // Calculate nearby opportunities (strictly <= 50 km and matches at least one assigned skill)
-  const nearbyJobs = useMemo(() => {
-    return bookings.filter((b) => {
-      if (declinedJobIds?.has(b.id)) return false;
-      const status = String(b.bookingStatus || '').toUpperCase();
-      if (status === 'SERVICE_COMPLETED' || status === 'CANCELLED') return false;
-
-      // Skill match
-      const matchesSkill =
-        assignedSkills.length === 0 ||
-        assignedSkills.some((s) =>
-          s.toLowerCase().includes((b.serviceName || '').toLowerCase()) ||
-          (b.serviceName || '').toLowerCase().includes(s.toLowerCase())
-        );
-      if (!matchesSkill) return false;
-
-      // Distance check: strictly <= 50 km
-      const jobLat = b.coordinates?.lat || b.lat || 22.5726;
-      const jobLng = b.coordinates?.lng || b.lng || 88.3639;
-      const dist = haversineKm(execCoords.lat, execCoords.lng, jobLat, jobLng);
-      return dist <= 50.0;
-    });
-  }, [bookings, declinedJobIds, assignedSkills, execCoords]);
-
-  // My Accepted / Active Jobs
-  const myAcceptedJobs = useMemo(() => {
-    return bookings.filter(
-      (b) =>
-        b.assignedExecutiveId === currentUser.id ||
-        b.bookingStatus === 'PROVIDER_ACCEPTED' ||
-        b.bookingStatus === 'PROVIDER_ON_THE_WAY' ||
-        b.bookingStatus === 'SERVICE_STARTED'
-    );
-  }, [bookings, currentUser.id]);
-
-  const completedJobs = useMemo(() => {
-    return bookings.filter(
-      (b) =>
-        (b.assignedExecutiveId === currentUser.id || b.executiveAssignedId === currentUser.id) &&
-        b.bookingStatus === 'SERVICE_COMPLETED'
-    );
-  }, [bookings, currentUser.id]);
 
   return (
     <div className="space-y-6 pb-20 max-w-6xl mx-auto">

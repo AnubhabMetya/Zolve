@@ -49,24 +49,53 @@ export const CommunityOperationsCenter = ({ executiveUser }) => {
     });
   }, [selectedLocation]);
 
-  const execCity = resolved?.city || selectedLocation?.city || 'Kolkata';
-  const execState = resolved?.state || selectedLocation?.state || 'West Bengal';
+  const execCity = resolved?.city || selectedLocation?.city || null;
+  const execState = resolved?.state || selectedLocation?.state || null;
 
-  // Real society requests filtered strictly to 50 km
-  const localSocietyRequests = useMemo(() => {
-    return societyRequests.filter((req) => {
-      if (req.city && execCity && req.city.toLowerCase() !== execCity.toLowerCase()) {
-        return false;
+  // Filter societies by executive's actual service area (canonical 50 km, no Kolkata/Bengaluru fallback)
+  const filteredSocieties = useMemo(() => {
+    if (!execCity && !execCoords) return [];
+    return societies.filter((soc) => {
+      const socCity = soc.city || soc.City || null;
+      let socCoords = soc.coords || soc.Coords || null;
+      if (typeof socCoords === 'string') {
+        try { socCoords = JSON.parse(socCoords); } catch { socCoords = null; }
       }
-      return true;
+      if (execCoords && socCoords?.lat != null && socCoords?.lng != null) {
+        const d = haversineKm(execCoords.lat, execCoords.lng, socCoords.lat, socCoords.lng);
+        return d <= 50;
+      }
+      if (socCity && execCity) return socCity.toLowerCase() === execCity.toLowerCase();
+      return false;
     });
-  }, [societyRequests, execCity]);
+  }, [societies, execCity, execCoords]);
 
-  // Operational metrics
+  // Real society requests filtered strictly to service area (city match + 50 km if coords available)
+  const localSocietyRequests = useMemo(() => {
+    if (!execCity && !execCoords) return [];
+    return societyRequests.filter((req) => {
+      const reqCoords = req.coords || req.Coords || req.customerCoords || null;
+      let parsedReqCoords = reqCoords;
+      if (typeof reqCoords === 'string') {
+        try { parsedReqCoords = JSON.parse(reqCoords); } catch { parsedReqCoords = null; }
+      }
+      if (execCoords && parsedReqCoords?.lat != null && parsedReqCoords?.lng != null) {
+        const d = haversineKm(execCoords.lat, execCoords.lng, parsedReqCoords.lat, parsedReqCoords.lng);
+        return d <= 50;
+      }
+      if (req.city && execCity) {
+        return req.city.toLowerCase() === execCity.toLowerCase();
+      }
+      // If request has no city/coords, cannot verify service area — exclude
+      return false;
+    });
+  }, [societyRequests, execCity, execCoords]);
+
+  // Operational metrics — never fabricate count from real zero
   const metrics = useMemo(() => {
     return {
       emergencyCount: 2,
-      activeIssues: localSocietyRequests.length || 6,
+      activeIssues: localSocietyRequests.length,
       pendingServices: 4,
       resolvedToday: 11
     };
@@ -98,7 +127,7 @@ export const CommunityOperationsCenter = ({ executiveUser }) => {
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-slate-200">
             <MapPin className="w-4 h-4 text-emerald-400" />
             <span>
-              <strong>{execCity}, {execState}</strong> • Service area: <strong>50 km</strong>
+              <strong>{execCity ? `${execCity}${execState ? `, ${execState}` : ''}` : 'Service area • Please set location'}</strong> • Service area: <strong>50 km</strong>
             </span>
           </div>
 
@@ -148,7 +177,7 @@ export const CommunityOperationsCenter = ({ executiveUser }) => {
         {[
           { key: 'emergencies', label: `Emergency Dispatch (${metrics.emergencyCount})`, icon: Siren, color: 'text-red-600' },
           { key: 'services', label: `Community Services (${metrics.pendingServices})`, icon: Droplets, color: 'text-blue-600' },
-          { key: 'societies', label: `Partner Housing Societies (${societies.length})`, icon: Building2, color: 'text-amber-600' }
+          { key: 'societies', label: `Partner Housing Societies (${filteredSocieties.length})`, icon: Building2, color: 'text-amber-600' }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -286,7 +315,7 @@ export const CommunityOperationsCenter = ({ executiveUser }) => {
         <div className="space-y-4">
           <div>
             <h3 className="text-base font-extrabold text-slate-900">
-              Registered Housing Societies in Your Service Area ({execCity})
+              Registered Housing Societies in Your Service Area ({execCity || '— not set'})
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               Verified resident associations under annual cooperative maintenance agreements.
@@ -294,26 +323,32 @@ export const CommunityOperationsCenter = ({ executiveUser }) => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {societies.slice(0, 6).map((soc) => (
-              <div
-                key={soc.id}
-                className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-2 shadow-subtle text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
-                    <Building2 className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h5 className="font-bold text-slate-900 truncate">{soc.name}</h5>
-                    <p className="text-[10px] text-slate-400 truncate">{soc.city}, {soc.state}</p>
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                  <span className="text-slate-500">{soc.unitsCount || 120} Resident Units</span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px]">Active Member</span>
-                </div>
+            {filteredSocieties.length === 0 ? (
+              <div className="col-span-full text-center text-xs text-slate-500 py-6 bg-white rounded-2xl border border-slate-200/90">
+                No societies in your 50 km service area{execCity ? ` (${execCity})` : ''} — please set location or check back later.
               </div>
-            ))}
+            ) : (
+              filteredSocieties.slice(0, 6).map((soc) => (
+                <div
+                  key={soc.id}
+                  className="bg-white rounded-2xl border border-slate-200/90 p-4 space-y-2 shadow-subtle text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                      <Building2 className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h5 className="font-bold text-slate-900 truncate">{soc.name}</h5>
+                      <p className="text-[10px] text-slate-400 truncate">{soc.city}, {soc.state}</p>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500">{soc.unitsCount || 120} Resident Units</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold text-[10px]">Active Member</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
