@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
+import { useTranslation } from 'react-i18next';
+import { LanguageSwitcher } from '../common/LanguageSwitcher';
 import {
   Sparkles,
   MapPin,
@@ -25,6 +27,7 @@ import {
 } from 'lucide-react';
 
 export const Navbar = () => {
+  const { t } = useTranslation();
   const {
     selectedLocation,
     locationStatus,
@@ -101,15 +104,15 @@ export const Navbar = () => {
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-2xl font-extrabold text-black dark:text-white tracking-tight font-display">
-                    Zolve
+                    <span className="text-2xl font-extrabold text-black dark:text-white tracking-tight font-display">
+                    {t('brand.name')}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-coop-50 text-coop-700 border border-coop-200">
-                    Cooperative
+                    {t('brand.cooperative')}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
-                  Trusted Services. Stronger Communities.
+                  {t('brand.tagline')}
                 </p>
               </div>
             </button>
@@ -122,11 +125,11 @@ export const Navbar = () => {
             >
               <MapPin className="w-3.5 h-3.5 text-coop-600" />
               <span className="max-w-[160px] truncate">
-                {locationStatus === 'detecting' ? 'Detecting your location…' :
-                 locationStatus === 'denied' ? 'Location access was denied.' :
-                 locationStatus === 'unavailable' ? 'Unable to detect location' :
-                 locationStatus === 'unsupported' ? 'Zolve not available in this area' :
-                 (typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || 'Location not set')}
+                {locationStatus === 'detecting' ? t('location.detecting') :
+                 locationStatus === 'denied' ? t('location.denied') :
+                 locationStatus === 'unavailable' ? t('location.unavailable') :
+                 locationStatus === 'unsupported' ? t('location.unsupported') :
+                 (typeof selectedLocation === 'string' ? selectedLocation : selectedLocation?.name || t('location.notSet'))}
               </span>
               <ChevronDown className="w-3 h-3 text-slate-400" />
             </button>
@@ -143,7 +146,7 @@ export const Navbar = () => {
                     activeTab === 'home' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  Services
+                  {t('nav.services')}
                 </button>
                 <button
                   onClick={() => handleNavClick('cooperative')}
@@ -151,7 +154,7 @@ export const Navbar = () => {
                     activeTab === 'cooperative' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  The Cooperative
+                  {t('nav.cooperative')}
                 </button>
                 <button
                   onClick={() => handleNavClick('community')}
@@ -159,7 +162,7 @@ export const Navbar = () => {
                     activeTab === 'community' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  Community
+                  {t('nav.community')}
                 </button>
                 <button
                   onClick={() => handleNavClick('trust')}
@@ -167,7 +170,7 @@ export const Navbar = () => {
                     activeTab === 'trust' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  Trust & Safety
+                  {t('nav.trust')}
                 </button>
                 <button
                   onClick={() => handleNavClick('society')}
@@ -175,11 +178,11 @@ export const Navbar = () => {
                     activeTab === 'society' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  Society Portal
+                  {t('nav.society')}
                 </button>
               </>
             ) : activeRole === 'customer' ? (
-              // Customer Navigation
+              // Customer Navigation — Payments moved to Profile section
               <>
                 <button
                   onClick={() => handleNavClick('home')}
@@ -187,7 +190,7 @@ export const Navbar = () => {
                     activeTab === 'home' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Explore Services
+                  {t('nav.explore')}
                 </button>
                 <button
                   onClick={() => handleNavClick('bookings')}
@@ -196,16 +199,7 @@ export const Navbar = () => {
                   }`}
                 >
                   <Calendar className="w-4 h-4 text-coop-600" />
-                  My Bookings
-                </button>
-                <button
-                  onClick={() => handleNavClick('payments')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                    activeTab === 'payments' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <CreditCard className="w-4 h-4 text-blue-600" />
-                  Payments
+                  {t('nav.bookings')}
                 </button>
                 <button
                   onClick={() => handleNavClick('cooperative')}
@@ -213,7 +207,7 @@ export const Navbar = () => {
                     activeTab === 'cooperative' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Cooperative
+                  {t('nav.cooperative')}
                 </button>
                 <button
                   onClick={() => handleNavClick('community')}
@@ -221,7 +215,7 @@ export const Navbar = () => {
                     activeTab === 'community' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Community
+                  {t('nav.community')}
                 </button>
               </>
             ) : activeRole === 'provider' ? (
@@ -307,6 +301,7 @@ export const Navbar = () => {
 
           {/* Right Action Icons & Auth Controls */}
           <div className="flex items-center shrink-0 gap-1.5 sm:gap-2 flex-nowrap min-w-0">
+            <LanguageSwitcher compact />
             {/* Dark Mode Toggle — visible on all pages including landing */}
             <button
               onClick={toggleTheme}
@@ -322,7 +317,7 @@ export const Navbar = () => {
               title="Open Zolve AI Assistant"
             >
               <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-300 animate-pulse" />
-              <span className="hidden sm:inline">AI Copilot</span>
+              <span className="hidden sm:inline">{t('nav.aiCopilot')}</span>
             </button>
 
             {/* Demo Role Switcher Dropdown — hidden from public unless VITE_ENABLE_DEMO or ?demo or admin */}
@@ -488,6 +483,13 @@ export const Navbar = () => {
                       My Profile
                     </button>
                     <button
+                      onClick={() => { navigate('/payments'); setIsProfileMenuOpen(false); setActiveTab('profile'); }}
+                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
+                    >
+                      <CreditCard className="w-3.5 h-3.5 text-blue-500" />
+                      Payments & Invoices
+                    </button>
+                    <button
                       onClick={async () => { await handleLogout(); setIsProfileMenuOpen(false); }}
                       className="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 font-medium border-t border-slate-100"
                     >
@@ -500,24 +502,24 @@ export const Navbar = () => {
             ) : (
               <div className="flex flex-col gap-1.5 shrink-0">
                 <div className="flex items-center gap-1.5 sm:gap-2">
-                  <button
+                    <button
                     onClick={() => navigate('/login')}
                     className="flex-1 sm:flex-none px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-[11px] sm:text-xs font-bold transition-colors whitespace-nowrap text-center"
                   >
-                    Login
+                    {t('nav.login')}
                   </button>
                   <button
                     onClick={() => navigate('/signup')}
                     className="flex-1 sm:flex-none px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-black hover:bg-zinc-800 text-white text-[11px] sm:text-xs font-bold shadow-sm transition-colors whitespace-nowrap text-center"
                   >
-                    Sign Up
+                    {t('nav.signup')}
                   </button>
                 </div>
                 <button
                   onClick={() => { setIsLocationModalOpen(false); navigate('/'); setTimeout(()=> setActiveTab('join-executive'), 0) }}
                   className="w-full inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-white border-2 border-black text-black hover:bg-zinc-50 text-[11px] sm:text-xs font-bold whitespace-nowrap"
                 >
-                  Join as Executive
+                  {t('nav.joinExecutive')}
                 </button>
               </div>
             )}
@@ -548,9 +550,9 @@ export const Navbar = () => {
             <>
               <button onClick={() => handleNavClick('home')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Explore Services</button>
               <button onClick={() => handleNavClick('bookings')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">My Bookings</button>
-              <button onClick={() => handleNavClick('payments')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Payments</button>
               <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Cooperative</button>
               <button onClick={() => handleNavClick('community')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Community</button>
+              <button onClick={() => { handleNavClick('profile'); setIsMobileMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50 flex items-center gap-2"><User className="w-4 h-4 text-slate-400" /> My Profile • Payments</button>
             </>
           ) : activeRole === 'provider' ? (
             <>

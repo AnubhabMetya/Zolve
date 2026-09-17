@@ -33,12 +33,53 @@ const iconMap = { Home, HeartHandshake, Building2 };
 export const JoinExecutivePage = () => {
   const { executiveVerticals, registerExecutive, setActiveTab, bookings, selectedLocation } = useApp();
   const { user: supaUser } = useAuth();
-  const [selectedVertical, setSelectedVertical] = useState(null);
-  const [selectedSkills, setSelectedSkills] = useState([]);
-  const [step, setStep] = useState(1); // 1 pick vertical, 2 profile & skills, 3 otp, 4 status
-  const [fullName, setFullName] = useState('');
-  const [mobileNumber, setMobileNumber] = useState('');
-  const [gmailAddress, setGmailAddress] = useState('');
+  const JOIN_STEP_KEY = 'zolve_join_step_v1';
+  const [selectedVertical, setSelectedVertical] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(JOIN_STEP_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p?.verticalId) {
+          const v = executiveVerticals?.find?.(x => x.id === p.verticalId);
+          if (v) return v;
+        }
+      }
+    } catch {}
+    return null;
+  });
+  const [selectedSkills, setSelectedSkills] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(JOIN_STEP_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (Array.isArray(p?.skills) && p.skills.length) return p.skills;
+      }
+    } catch {}
+    return [];
+  });
+  const [step, setStep] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(JOIN_STEP_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        const s = Number(p?.step);
+        if (s >= 1 && s <= 4) return s;
+      }
+    } catch {}
+    return 1;
+  }); // 1 pick vertical, 2 profile & skills, 3 otp, 4 status
+  const [fullName, setFullName] = useState(() => {
+    try { const raw = sessionStorage.getItem(JOIN_STEP_KEY); if (raw) { const p = JSON.parse(raw); if (p?.fullName) return p.fullName; } } catch {}
+    return '';
+  });
+  const [mobileNumber, setMobileNumber] = useState(() => {
+    try { const raw = sessionStorage.getItem(JOIN_STEP_KEY); if (raw) { const p = JSON.parse(raw); if (p?.mobileNumber) return p.mobileNumber; } } catch {}
+    return '';
+  });
+  const [gmailAddress, setGmailAddress] = useState(() => {
+    try { const raw = sessionStorage.getItem(JOIN_STEP_KEY); if (raw) { const p = JSON.parse(raw); if (p?.gmailAddress) return p.gmailAddress; } } catch {}
+    return '';
+  });
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const [otpError, setOtpError] = useState('');
   const [otpSuccess, setOtpSuccess] = useState('');
@@ -58,6 +99,30 @@ export const JoinExecutivePage = () => {
       return () => clearTimeout(t);
     }
   }, [resendCountdown]);
+
+  // Persist join flow so OTP → step 4 survives remount / history push race — explicit click only to leave
+  useEffect(() => {
+    try {
+      const payload = {
+        step,
+        verticalId: selectedVertical?.id || null,
+        skills: selectedSkills,
+        fullName,
+        mobileNumber,
+        gmailAddress,
+      };
+      sessionStorage.setItem(JOIN_STEP_KEY, JSON.stringify(payload));
+      if (step === 4 || step === 3) {
+        // Anchor URL without triggering App.jsx auto-redirect away
+        if (window.location.pathname !== '/join-executive') {
+          window.history.pushState({}, '', '/join-executive');
+        }
+        // Keep activeTab as join-executive (prevents landing bounce)
+        setActiveTab('join-executive');
+        try { localStorage.setItem('zolve_app_state_v1_activeTab', 'join-executive'); } catch {}
+      }
+    } catch {}
+  }, [step, selectedVertical?.id, selectedSkills, fullName, mobileNumber, gmailAddress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -412,7 +477,7 @@ export const JoinExecutivePage = () => {
 
           <div className="flex gap-3 justify-center">
             <button
-              onClick={() => setActiveTab('home')}
+              onClick={() => { try { sessionStorage.removeItem(JOIN_STEP_KEY); } catch {} setActiveTab('home'); }}
               className="px-6 py-3 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
             >
               Back to Home
@@ -499,7 +564,7 @@ export const JoinExecutivePage = () => {
 
           <div className="flex justify-center gap-3">
             <button
-              onClick={() => setActiveTab('home')}
+              onClick={() => { try { sessionStorage.removeItem(JOIN_STEP_KEY); } catch {} setActiveTab('home'); }}
               className="px-8 py-3 rounded-xl bg-brand-900 hover:bg-brand-950 text-white text-xs font-bold shadow-md flex items-center gap-2"
             >
               <span>Go to Executive Operations Portal</span>
@@ -538,6 +603,7 @@ export const JoinExecutivePage = () => {
           <div className="flex gap-3 justify-center">
             <button
               onClick={() => {
+                try { sessionStorage.removeItem(JOIN_STEP_KEY); } catch {}
                 setStep(1);
                 setPersistedApp(null);
               }}
@@ -546,7 +612,7 @@ export const JoinExecutivePage = () => {
               Apply Again
             </button>
             <button
-              onClick={() => setActiveTab('home')}
+              onClick={() => { try { sessionStorage.removeItem(JOIN_STEP_KEY); } catch {} setActiveTab('home'); }}
               className="px-6 py-3 rounded-xl bg-brand-900 text-white text-xs font-bold"
             >
               Back to Home

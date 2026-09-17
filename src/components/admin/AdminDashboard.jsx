@@ -20,7 +20,7 @@ import {
   Phone,
   Building2
 } from 'lucide-react';
-import { getAdminDemandForecast, getFraudAnomalyFlags } from '../../services/aiEngine';
+import { getFraudAnomalyFlags } from '../../services/aiEngine';
 import { WorkforceAllocation } from '../ai/WorkforceAllocation';
 import { TrustAnomalyDashboard } from '../ai/TrustAnomalyDashboard';
 import { EmergencyDispatch } from '../ai/EmergencyDispatch';
@@ -80,9 +80,31 @@ export const AdminDashboard = () => {
   const [newPropSummary, setNewPropSummary] = useState('');
   const [newPropCategory, setNewPropCategory] = useState('Member Welfare');
   const [newPropBudget, setNewPropBudget] = useState('₹3,50,000 from Reserve');
+  const [showFinanceLedger, setShowFinanceLedger] = useState(false);
 
-  const demandForecast = getAdminDemandForecast();
   const anomalyFlags = getFraudAnomalyFlags();
+
+  // Live AI forecast summary derived from predictions CSV (XGBoost prototype)
+  const liveDemandSummary = React.useMemo(() => {
+    if (!forecastPredictions.length) return [];
+    // Aggregate predicted vs actual by service_name for next available week
+    const byService = {};
+    for (const row of forecastPredictions) {
+      const key = row.service_name || row.service_id;
+      if (!byService[key]) byService[key] = { service: key, service_id: row.service_id, totalPredicted: 0, totalActual: 0, cities: new Set(), count: 0 };
+      byService[key].totalPredicted += Number(row.predicted_booking_count || 0);
+      byService[key].totalActual += Number(row.actual_booking_count || 0);
+      byService[key].cities.add(row.city);
+      byService[key].count += 1;
+    }
+    const arr = Object.values(byService).map(s => {
+      const avgPredicted = s.totalPredicted / s.count;
+      const avgActual = s.totalActual / s.count;
+      const growth = s.totalActual ? ((s.totalPredicted - s.totalActual) / s.totalActual * 100) : 0;
+      return { ...s, avgPredicted, avgActual, growth, cityCount: s.cities.size };
+    }).sort((a,b) => b.totalPredicted - a.totalPredicted);
+    return arr.slice(0, 4);
+  }, [forecastPredictions]);
 
   // Async load forecast predictions (cached, out of main bundle)
   React.useEffect(() => {
@@ -224,6 +246,12 @@ export const AdminDashboard = () => {
     } finally { setRejectingId(null); }
   };
 
+  // KYC docs live map for admin quick verify
+  const [kycRefresh, setKycRefresh] = useState(0);
+  const getKycFor = (pid) => {
+    try { const raw = localStorage.getItem('zolve_kyc_docs_v1'); if (!raw) return null; const m = JSON.parse(raw); return m[pid] || null; } catch { return null; }
+  };
+
   // Handle Proposal Submission
   const handleCreateProposal = (e) => {
     e.preventDefault();
@@ -322,41 +350,52 @@ export const AdminDashboard = () => {
             </div>
           </div>
 
-          {/* Recent Bookings Stream */}
+          {/* Recent Bookings Stream — collapsed by default; Payments are customer Profile concern, not primary admin view */}
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-subtle p-6 space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-              Live System Bookings Stream ({bookings.length})
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                  <tr>
-                    <th className="p-3">Code</th>
-                    <th className="p-3">Customer</th>
-                    <th className="p-3">Provider</th>
-                    <th className="p-3">Service</th>
-                    <th className="p-3">Amount</th>
-                    <th className="p-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {bookings.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-50">
-                      <td className="p-3 font-mono font-bold text-purple-700">#{b.bookingCode}</td>
-                      <td className="p-3 font-medium text-slate-900">{b.customerName}</td>
-                      <td className="p-3 text-slate-700">{b.providerName}</td>
-                      <td className="p-3 text-slate-600">{b.serviceName}</td>
-                      <td className="p-3 font-bold text-slate-900">₹{b.totalAmount}</td>
-                      <td className="p-3">
-                        <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[10px] font-bold">
-                          {b.bookingStatus}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                Live System Bookings Stream ({bookings.length})
+              </h3>
+              <button
+                onClick={() => setShowFinanceLedger(!showFinanceLedger)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${showFinanceLedger ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+              >
+                {showFinanceLedger ? 'Hide Finance Audit Trail' : 'View Finance Audit Trail (Amounts)'}
+              </button>
             </div>
+            <p className="text-[11px] text-slate-500">Operational view — amounts are hidden by default. Customer invoices live in <strong>Profile → Payments</strong>. Expand only for NCCT finance audit / dispute verification (Razorpay escrow).</p>
+            {showFinanceLedger && (
+              <div className="overflow-x-auto animate-in fade-in">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                    <tr>
+                      <th className="p-3">Code</th>
+                      <th className="p-3">Customer</th>
+                      <th className="p-3">Provider</th>
+                      <th className="p-3">Service</th>
+                      <th className="p-3">Amount</th>
+                      <th className="p-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {bookings.map((b) => (
+                      <tr key={b.id} className="hover:bg-slate-50">
+                        <td className="p-3 font-mono font-bold text-purple-700">#{b.bookingCode}</td>
+                        <td className="p-3 font-medium text-slate-900">{b.customerName}</td>
+                        <td className="p-3 text-slate-700">{b.providerName}</td>
+                        <td className="p-3 text-slate-600">{b.serviceName}</td>
+                        <td className="p-3 font-bold text-slate-900">₹{b.totalAmount}</td>
+                        <td className="p-3">
+                          <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[10px] font-bold">
+                            {b.bookingStatus}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -405,16 +444,37 @@ export const AdminDashboard = () => {
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                {(() => { const kyc = getKycFor(p.id); if (!kyc) return <div className="text-[11px] text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5">No document uploaded yet — provider must upload in Provider Dashboard → KYC card.</div>; return (
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-2 text-xs">
+                    <span className="truncate flex-1">📄 {kyc.originalName || kyc.fileName} • {kyc.status}</span>
+                    <a href={kyc.url} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[11px] font-bold hover:bg-slate-100">View Doc</a>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${kyc.status==='verified'?'bg-emerald-50 text-emerald-700 border-emerald-200':kyc.status==='pending'?'bg-amber-50 text-amber-700 border-amber-200':'bg-slate-100'}`}>{kyc.status}</span>
+                  </div>
+                ); })()}
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-[11px] text-slate-500 font-medium">
                     Status: <strong className="text-coop-700">Accredited Pro</strong>
                   </span>
-                  <button
-                    onClick={() => approveProviderKYC(p.id)}
-                    className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold shadow-sm transition-colors"
-                  >
-                    Re-Verify & Approve KYC
-                  </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={async () => {
+                        const kyc = getKycFor(p.id);
+                        if (!kyc) { alert('No document to verify — ask provider to upload'); return; }
+                        try { const { verifyKyc } = await import('../../services/kycService.js'); await verifyKyc(p.id, true); setKycRefresh(x=>x+1); } catch {}
+                        approveProviderKYC(p.id);
+                      }}
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+                    >
+                      Verify & Approve KYC
+                    </button>
+                    <button
+                      onClick={() => approveProviderKYC(p.id)}
+                      className="px-3 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold shadow-sm"
+                    >
+                      Re-Verify
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -577,34 +637,47 @@ export const AdminDashboard = () => {
         </div>
       )}
 
-      {/* TAB 4: AI DEMAND PREDICTION & FRAUD MONITOR */}
+      {/* TAB 4: AI DEMAND PREDICTION & FRAUD MONITOR — LIVE MODEL */}
       {activeAdminTab === 'ai_demand' && (
         <div className="space-y-8 animate-in fade-in">
-          {/* Demand Prediction */}
+          {/* Demand Prediction — LIVE XGBoost prototype */}
           <div className="space-y-4">
             <div>
               <h2 className="text-xl font-bold text-slate-900 font-display flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-amber-500" />
-                <span>AI Regional Demand Forecasting (Next 14 Days)</span>
+                <span>AI Regional Demand Forecasting — XGBoost Prototype</span>
+                <span className="ml-2 px-2 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-bold">Live CSV • {forecastPredictions.length ? `${forecastPredictions.length} rows` : 'loading…'}</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Machine learning forecast based on monsoon rainfall records, temperature variance, and housing society maintenance cycles.
+                Model: XGBoost (synthetic 50.4k rows, 20 cities × 14 services) — predictions file <code className="px-1 py-0.5 bg-slate-100 rounded">public/data/forecastPredictions.json</code> loaded via <code className="px-1 py-0.5 bg-slate-100 rounded">aiDataLoader</code>. Aggregated by service. Synthetic prototype — replace with live bookings when history &gt;30 days.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {demandForecast.map((item, idx) => (
-                <div key={idx} className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-subtle space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-bold text-slate-900">{item.category}</h4>
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 font-extrabold text-xs">
-                      {item.forecastGrowth} Surge
-                    </span>
+            {forecastLoading ? (
+              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center text-sm text-slate-500">Loading XGBoost predictions…</div>
+            ) : forecastError ? (
+              <div className="p-6 rounded-2xl bg-red-50 border border-red-200 text-center text-sm text-red-600">Failed: {forecastError}</div>
+            ) : liveDemandSummary.length === 0 ? (
+              <div className="p-6 rounded-2xl bg-amber-50 border border-amber-200 text-center text-sm text-amber-700">No live forecast rows — check <code>public/data/forecastPredictions.json</code></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {liveDemandSummary.map((item) => (
+                  <div key={item.service_id} className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-subtle space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-slate-900">{item.service}</h4>
+                      <span className={`px-2.5 py-0.5 rounded-full font-extrabold text-xs ${item.growth > 10 ? 'bg-red-50 text-red-700' : item.growth > 5 ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>
+                        {item.growth > 0 ? `+${item.growth.toFixed(1)}%` : `${item.growth.toFixed(1)}%`} {item.growth > 10 ? 'Surge' : item.growth > 5 ? 'Moderate' : 'Steady'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Forecast <strong>{item.totalPredicted.toFixed(0)}</strong> bookings vs actual <strong>{item.totalActual.toFixed(0)}</strong> across <strong>{item.cityCount}</strong> cities (avg predicted {item.avgPredicted.toFixed(1)}/day). Model trained on synthetic monsoon/temperature seasonality.
+                    </p>
+                    <div className="text-[10px] text-slate-400">{item.service_id} • {item.count} daily rows</div>
                   </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">{item.reason}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] text-slate-400 bg-slate-50 border border-slate-200 rounded-xl p-3">Full date/service/city breakdown is in <strong>Workforce Allocation</strong> tab. This summary aggregates total predicted demand per service for jury demonstration.</div>
           </div>
 
           {/* Fraud & Anomaly Flags */}

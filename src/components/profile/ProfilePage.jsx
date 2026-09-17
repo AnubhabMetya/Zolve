@@ -31,8 +31,11 @@ import {
   Search,
   X,
   Check,
-  Building2
+  Building2,
+  CreditCard
 } from 'lucide-react';
+import { CustomerPaymentHistory } from '../customer/CustomerPaymentHistory';
+import { useNavigate } from 'react-router-dom';
 
 // ---------- Address helpers ----------
 function parseReverseToForm(rev) {
@@ -342,6 +345,7 @@ export const ProfilePage = () => {
     setDefaultAddress,
   } = useApp();
   const { updatePhone } = useAuth();
+  const navigate = useNavigate();
 
   const [activeSection, setActiveSection] = useState('none');
   const [isEditingPhone, setIsEditingPhone] = useState(false);
@@ -373,9 +377,11 @@ export const ProfilePage = () => {
   const handleYourOrders = () => setActiveSection('orders');
   const handleNeedHelp = () => { setIsCopilotOpen(true); setActiveSection('help'); };
   const handleZolveMoney = () => setActiveSection('money');
+  const handlePayments = () => setActiveSection('payments');
 
   const sectionTabs = [
     { id: 'orders', label: 'Your Orders', icon: Package, desc: `${visible.length} orders`, action: handleYourOrders },
+    { id: 'payments', label: 'Payments & Invoices', icon: CreditCard, desc: 'Razorpay history', action: handlePayments },
     { id: 'money', label: 'Zolve Money', icon: Wallet, desc: `₹${zolveMoney.balance}`, action: handleZolveMoney },
     { id: 'help', label: 'Need Help', icon: HelpCircle, desc: 'AI Copilot', action: handleNeedHelp },
   ];
@@ -528,10 +534,10 @@ export const ProfilePage = () => {
 
       <AddressFormModal open={addrModalOpen} onClose={()=>{ setAddrModalOpen(false); setEditingAddr(null)}} onSave={handleSaveAddr} initial={editingAddr} />
 
-      {/* Three horizontal options under My Account */}
+      {/* Four horizontal options under My Account — Payments now lives here */}
       <div className="space-y-3">
         <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">My Account</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {sectionTabs.map((tab) => (
             <button
               key={tab.id}
@@ -543,7 +549,7 @@ export const ProfilePage = () => {
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tab.id === 'money' ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400' : tab.id === 'help' ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tab.id === 'money' ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400' : tab.id === 'payments' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-400' : tab.id === 'help' ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
                   <tab.icon className="w-5 h-5" />
                 </div>
                 <div>
@@ -615,6 +621,18 @@ export const ProfilePage = () => {
               </div>
             )}
             <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-3">Rewards are credited instantly after successful booking. Random ₹10–₹200 per order.</p>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'payments' && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-subtle overflow-hidden">
+          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <h4 className="text-sm font-bold dark:text-white flex items-center gap-2"><CreditCard className="w-4 h-4 text-blue-600" /> Payments & Invoices</h4>
+            <button onClick={() => navigate('/payments')} className="text-xs font-bold text-brand-700 dark:text-brand-300 hover:underline">Open full history →</button>
+          </div>
+          <div className="p-4">
+            <CustomerPaymentHistory />
           </div>
         </div>
       )}

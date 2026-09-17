@@ -17,7 +17,7 @@ import {
   Wallet,
   Phone
 } from 'lucide-react';
-import { createRazorpayOrder, verifyRazorpayPayment } from '../../services/razorpayService';
+import { createRazorpayOrder, verifyRazorpayPayment, openRazorpayCheckout } from '../../services/razorpayService';
 import { getCurrentPosition, reverseGeocode, searchPlaces, searchByPincode, isValidIndianPincode } from '../../services/locationService';
 import { isValidIndianMobile, normalizePhone } from '../../services/otpService';
 import { useAuth } from '../../context/AuthContext';
@@ -344,25 +344,68 @@ export const BookingModal = () => {
       setIsAuthModalOpen(true);
       return;
     }
-    // Final guard: phone must still be valid (covers direct pay without step 4)
     const effectivePhone = bookingPhone.trim() || currentUser?.phone || ''
     if (!isValidIndianMobile(effectivePhone)) {
       setBookingPhoneError('Enter valid 10-digit mobile — executive will contact you on this during service')
       setStep(4)
       return
     }
-
     setIsProcessingPayment(true);
-
     try {
-      // Step 1: Secure Order Creation via server / n8n workflow
       const tempBookingId = `bk-temp-${Date.now()}`;
-      await createRazorpayOrder({
+      const orderRes = await createRazorpayOrder({
         bookingId: tempBookingId,
         amount: totalAmount,
         customerId: currentUser.id,
         serviceName: p.title
       });
+
+      // If live Razorpay key is configured, open real checkout; else fallback to mock modal
+      const isLive = !!import.meta.env.VITE_RAZORPAY_KEY_ID && !orderRes.isSandbox;
+      if (isLive && orderRes.orderId && orderRes.keyId) {
+        try {
+          const rzpResp = await openRazorpayCheckout({
+            orderId: orderRes.orderId,
+            amount: orderRes.amount,
+            keyId: orderRes.keyId,
+            customerName: currentUser?.name || currentUser?.full_name,
+            customerEmail: currentUser?.email,
+            customerPhone: normalizePhone(effectivePhone),
+            serviceName: p.title
+          });
+          // On Razorpay success, verify signature then create booking
+          const verification = await verifyRazorpayPayment({
+            orderId: rzpResp.razorpay_order_id || orderRes.orderId,
+            paymentId: rzpResp.razorpay_payment_id,
+            signature: rzpResp.razorpay_signature,
+            bookingId: tempBookingId
+          });
+          if (verification.verified) {
+            if (requestedRedeem > 0) redeemZolveMoney(requestedRedeem, 'pending');
+            const effectivePhoneForBooking = normalizePhone(bookingPhone || currentUser?.phone || '')
+            const finalBooking = await createBooking({
+              providerId: p.id, providerName: p.name, providerAvatar: p.avatar, providerPhone: p.phone, providerTitle: p.title,
+              isCoopMember: p.isCoopMember, providerCoords: p.coords || null, customerCoords: addressCoords || null,
+              customerPhone: effectivePhoneForBooking, serviceId: bookingPrefill?.serviceId || 'srv-user-selected',
+              serviceName: bookingPrefill?.serviceName || p.title, bookingImages: bookingPrefill?.images || [],
+              aiDetected: !!bookingPrefill, aiConfidence: bookingPrefill?.confidence, aiProblem: bookingPrefill?.problem,
+              category: p.serviceCategories?.[0] || 'Household', address: isCustomAddress ? (customAddress || selectedAddress) : selectedAddress,
+              scheduledDate: selectedDate, scheduledTime: selectedTimeSlot, description: serviceDescription,
+              baseAmount: baseServicePrice, platformFee, coopReserveFee, taxes: gstTax, totalAmount, grossTotal,
+              zolveMoneyRedeemed: requestedRedeem, providerEarnings,
+              paymentId: rzpResp.razorpay_payment_id, razorpayOrderId: rzpResp.razorpay_order_id || orderRes.orderId,
+              paymentMethod: paymentMethodChoice.toUpperCase()
+            });
+            setIsProcessingPayment(false);
+            setSelectedProviderForBooking(null);
+            setBookingPrefill(null);
+            setActiveBookingForTracking(finalBooking);
+            return;
+          }
+        } catch (rzpErr) {
+          console.warn('Live checkout failed/dismissed, falling back to sandbox modal', rzpErr);
+        }
+      }
 
       setIsProcessingPayment(false);
       setIsRazorpayModalOpen(true);

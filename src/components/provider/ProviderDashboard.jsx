@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { watchPosition, clearWatch, isGeolocationSupported } from '../../services/locationService';
 import { publishLocation, isRealtimeEnabled } from '../../services/realtimeService';
+import { KycUploadCard } from './KycUploadCard';
+import { WelfareInsurancePanel } from './WelfareInsurancePanel';
 
 export const ProviderDashboard = () => {
   const {
@@ -176,6 +178,10 @@ export const ProviderDashboard = () => {
           </button>
         )}
       </div>
+
+      {/* KYC & Welfare — SIH worker welfare & verification */}
+      <KycUploadCard />
+      <WelfareInsurancePanel />
 
       {/* 2. KEY METRICS CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">

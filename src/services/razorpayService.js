@@ -107,3 +107,43 @@ export const loadRazorpayScript = () => {
     document.body.appendChild(script);
   });
 };
+
+/**
+ * Open live Razorpay Checkout (requires VITE_RAZORPAY_KEY_ID).
+ * Returns Promise that resolves with { razorpay_payment_id, razorpay_order_id, razorpay_signature } on success.
+ */
+export const openRazorpayCheckout = async ({ orderId, amount, keyId, customerName, customerEmail, customerPhone, serviceName, onSuccess, onDismiss }) => {
+  const loaded = await loadRazorpayScript();
+  if (!loaded || !window.Razorpay) throw new Error('Razorpay SDK failed to load');
+  return new Promise((resolve, reject) => {
+    const options = {
+      key: keyId,
+      amount: amount, // in paise already
+      currency: 'INR',
+      name: 'Zolve Cooperative',
+      description: serviceName || 'Service Booking',
+      order_id: orderId,
+      prefill: {
+        name: customerName || 'Zolve Customer',
+        email: customerEmail || 'customer@zolve.coop',
+        contact: customerPhone ? `+91${customerPhone}` : '',
+      },
+      theme: { color: '#0f172a' },
+      handler: function (response) {
+        resolve(response);
+        if (onSuccess) onSuccess(response);
+      },
+      modal: {
+        ondismiss: function () {
+          if (onDismiss) onDismiss();
+          reject(new Error('Checkout dismissed'));
+        }
+      }
+    };
+    const rzp = new window.Razorpay(options);
+    rzp.on('payment.failed', function (resp) {
+      reject(new Error(resp.error?.description || 'Payment failed'));
+    });
+    rzp.open();
+  });
+};

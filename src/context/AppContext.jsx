@@ -741,7 +741,15 @@ export const AppProvider = ({ children }) => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_live_locs`);
     try { return saved ? JSON.parse(saved) : {}; } catch { return {}; }
   });
-  const [activeTab, setActiveTab] = useState('home'); // active navigation view
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const p = window.location.pathname;
+      if (p === '/join-executive') return 'join-executive';
+      const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_activeTab`);
+      if (saved === 'join-executive') return 'join-executive';
+      return 'home';
+    } catch { return 'home'; }
+  }); // active navigation view — persisted to survive OTP-step refresh
   const [theme, setTheme] = useState(() => localStorage.getItem(`${STORAGE_KEY_PREFIX}_theme`) || 'light');
   // Zolve Money — per-account exclusive: each authenticated user gets isolated balance/history
   // Keyed as zolve_app_state_v1_zolve_money_<userId>, not global
@@ -1058,6 +1066,10 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_location`, JSON.stringify(selectedLocation));
   }, [selectedLocation]);
+
+  useEffect(() => {
+    try { localStorage.setItem(`${STORAGE_KEY_PREFIX}_activeTab`, activeTab); } catch {}
+  }, [activeTab]);
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}_live_locs`, JSON.stringify(providerLiveLocations));
@@ -1494,6 +1506,20 @@ export const AppProvider = ({ children }) => {
       message: `Status transitioned to ${newStatus.replace(/_/g, ' ')}`,
       type: 'booking'
     });
+    // Worker welfare & insurance: auto-create ₹5L coverage on SERVICE_COMPLETED
+    if (newStatus === 'SERVICE_COMPLETED') {
+      try {
+        const b = bookings.find(x => x.id === bookingId) || {};
+        const { createCoverageForBooking } = await import('../services/insuranceService.js');
+        await createCoverageForBooking({
+          bookingId,
+          providerId: b.providerId || b.provider_id || currentUser?.id || 'demo-provider-01',
+          providerName: b.providerName || b.provider_name || 'Provider',
+          city: b.city || b.customerCity || selectedLocation?.city || '—',
+          amount: b.totalAmount || b.total_amount || 800
+        });
+      } catch (e) { console.warn('insurance auto-create failed', e); }
+    }
   };
 
   const acceptExecutiveJob = async (bookingId) => {

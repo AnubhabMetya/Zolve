@@ -1,0 +1,77 @@
+{
+  "brand": {
+    "name": "Zolve",
+    "tagline": "Trusted Services. Stronger Communities.",
+    "cooperative": "Cooperative"
+  },
+  "nav": {
+    "services": "Services",
+    "cooperative": "The Cooperative",
+    "community": "Community",
+    "trust": "Trust & Safety",
+    "society": "Society Portal",
+    "explore": "Explore Services",
+    "bookings": "My Bookings",
+    "payments": "Payments",
+    "governance": "Governance",
+    "jobs": "Jobs & Schedule",
+    "earnings": "Earnings Ledger",
+    "memberPortal": "Member Portal & Voting",
+    "training": "Training",
+    "societyRequests": "Society Requests & Sump/Cleaning Logs",
+    "cooperativePartnerships": "Cooperative Partnerships",
+    "admin": "Admin",
+    "disputes": "Trust & Disputes",
+    "login": "Login",
+    "signup": "Sign Up",
+    "joinExecutive": "Join as Executive",
+    "signOut": "Sign Out",
+    "myProfile": "My Profile",
+    "demoRole": "Demo Role",
+    "aiCopilot": "AI Copilot",
+    "notifications": "Notifications"
+  },
+  "location": {
+    "detecting": "Detecting your location…",
+    "denied": "Location access was denied.",
+    "unavailable": "Unable to detect location",
+    "unsupported": "Zolve not available in this area",
+    "notSet": "Location not set"
+  },
+  "hero": {
+    "title": "Trusted Household & Community Services",
+    "subtitle": "Book verified electricians, plumbers, cleaners & more — powered by Labour Cooperative Federations.",
+    "searchPlaceholder": "What do you need? e.g. kitchen sink leaking",
+    "cta": "Search Services"
+  },
+  "booking": {
+    "step1": "Describe the Service Requirement",
+    "step2": "Select Preferred Date & Arrival Slot",
+    "step3": "Confirm Service Address",
+    "step4": "Contact Mobile Number",
+    "step5": "Price Breakdown & Transparent Economics",
+    "pay": "Pay & Confirm Booking",
+    "secured": "Secured by Razorpay. Funds held in escrow until service completion is confirmed."
+  },
+  "common": {
+    "search": "Search",
+    "loading": "Loading…",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next"
+  },
+  "footer": {
+    "rights": "© 2026 Zolve Cooperative. All rights reserved.",
+    "ministry": "Supported by Ministry of Cooperation, NCCT"
+  },
+  "lang": {
+    "english": "English",
+    "hindi": "हिन्दी",
+    "bengali": "বাংলা",
+    "marathi": "मराठी",
+    "tamil": "தமிழ்",
+    "telugu": "తెలుగు",
+    "select": "Language"
+  }
+}

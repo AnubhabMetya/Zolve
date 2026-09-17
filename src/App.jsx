@@ -105,7 +105,7 @@ export function AppContent() {
     setIsMobileMenuOpen(false);
   };
 
-  // Sync /join-executive URL to activeTab and handle AppContext navigate events
+  // Sync /join-executive URL to activeTab and handle AppContext navigate events — no auto-redirect away after OTP
   React.useEffect(() => {
     const path = window.location.pathname;
     if (path === '/join-executive') setActiveTab('join-executive');
@@ -113,15 +113,17 @@ export function AppContent() {
     window.addEventListener('zolve:navigate', handler);
     const onPop = () => {
       if (window.location.pathname === '/join-executive') setActiveTab('join-executive');
-      else if (activeTab === 'join-executive') setActiveTab('home');
+      // removed auto reset to home — keep explicit Back to Home button as only exit
     };
     window.addEventListener('popstate', onPop);
     return () => { window.removeEventListener('zolve:navigate', handler); window.removeEventListener('popstate', onPop); };
   }, []);
 
   React.useEffect(() => {
-    if (activeTab === 'join-executive') window.history.pushState({}, '', '/join-executive');
-    else if (window.location.pathname === '/join-executive') window.history.pushState({}, '', '/');
+    if (activeTab === 'join-executive' && window.location.pathname !== '/join-executive') {
+      window.history.pushState({}, '', '/join-executive');
+    }
+    // intentionally do NOT push '/' when leaving join-executive — prevents post-OTP bounce to landing
   }, [activeTab]);
 
   const isStandalonePage = ['/login','/signup','/forgot','/reset','/auth/callback','/search'].includes(location.pathname)
@@ -143,6 +145,7 @@ export function AppContent() {
           <Route path="/dashboard" element={<ProtectedRoute><CustomerDashboard onOpenSearchWithCategory={handleOpenSearchWithCategory} /></ProtectedRoute>} />
           <Route path="/provider" element={<ProtectedRoute roles={['provider']}><ProviderDashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/join-executive" element={<JoinExecutivePage />} />
           <Route path="/search" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><div className="mb-4 flex items-center gap-2 text-xs text-slate-500"><button onClick={()=>navigate('/')} className="hover:underline">← Back to Home</button><span>•</span><span>Explore Services</span></div><ServiceSearch initialSearch={searchParam} /></div>} />
           <Route path="/bookings" element={<ProtectedRoute><div className="space-y-6 pb-16"><div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-subtle flex items-center justify-between"><div><h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-display">My Bookings ({visibleBookings.length})</h1><p className="text-xs text-slate-500 mt-1">Track real-time provider arrival, chat with technicians, and review completed services.</p></div></div><div className="space-y-4">{!currentUser ? <div className="p-8 rounded-3xl bg-white border text-center"><p className="text-sm font-bold">Sign in to view your bookings</p><button onClick={()=>navigate('/login')} className="mt-3 px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Sign In</button></div> : visibleBookings.length===0 ? <div className="p-8 rounded-3xl bg-white border text-center text-sm text-slate-500">No bookings found.</div> : visibleBookings.map((b)=>(<div key={b.id} className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-subtle flex flex-col md:flex-row items-start md:items-center justify-between gap-6"><div className="flex items-start gap-4"><img src={b.providerAvatar} alt={b.providerName} className="w-16 h-16 rounded-2xl object-cover" /><div><span className="px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-700 font-bold text-xs">#{b.bookingCode}</span><h3 className="text-base font-bold text-slate-900">{b.serviceName}</h3><p className="text-xs text-slate-500">Provider: <strong className="text-slate-800">{b.providerName}</strong></p></div></div><button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Track & Details</button></div>))}</div></div></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />

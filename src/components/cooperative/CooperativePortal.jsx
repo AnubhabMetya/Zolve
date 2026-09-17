@@ -15,8 +15,10 @@ import {
   ArrowRight,
   PieChart,
   Layers,
-  HelpCircle
+  HelpCircle,
+  FileCheck
 } from 'lucide-react';
+import { getQuizForModule, submitQuiz, getCertsForProvider } from '../../services/certificationService';
 
 export const CooperativePortal = () => {
   const {
@@ -30,10 +32,30 @@ export const CooperativePortal = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('governance'); // 'governance' | 'training' | 'pillars' | 'projects'
+  const [quizFor, setQuizFor] = useState(null);
+  const [quizAnswers, setQuizAnswers] = useState({});
+  const [quizResult, setQuizResult] = useState(null);
+  const providerId = currentUser?.id || 'demo-provider-01';
 
   const handleVote = (proposalId, choice) => {
     voteOnProposal(proposalId, choice);
       };
+
+  const openQuiz = (mod) => {
+    setQuizFor(mod);
+    setQuizAnswers({});
+    setQuizResult(null);
+  };
+  const submitCurrentQuiz = () => {
+    const quiz = getQuizForModule(quizFor.id);
+    if (Object.keys(quizAnswers).length < quiz.length) { alert('Answer all questions'); return; }
+    const cert = submitQuiz({ moduleId: quizFor.id, moduleName: quizFor.title, providerId, providerName: currentUser?.name || 'Provider', answers: quizAnswers });
+    setQuizResult(cert);
+    if (cert.passed) {
+      addNotification({ title: 'Certified! 🎓', message: `${quizFor.title} — ${cert.score}/${cert.total} — Cert ${cert.certNo}`, type: 'system' });
+      enrollTraining(quizFor.id);
+    }
+  };
 
   return (
     <div className="space-y-12 pb-16">
@@ -284,6 +306,12 @@ export const CooperativePortal = () => {
             </p>
           </div>
 
+          {(() => { const certs = getCertsForProvider(providerId); if (certs.length) return (
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-3 text-xs">
+              <Award className="w-5 h-5 text-emerald-600" />
+              <div><div className="font-bold text-emerald-900">Your Verifiable Certificates ({certs.length})</div><div className="text-emerald-700">{certs.filter(c=>c.passed).map(c=>`${c.moduleName}: ${c.certNo} (${c.score}/${c.total})`).join(' • ') || 'No passed certs yet'}</div></div>
+            </div>
+          ); return null; })()}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {trainingModules.map((mod) => (
               <div
@@ -345,16 +373,24 @@ export const CooperativePortal = () => {
                         Badge: {mod.badge}
                       </span>
                       {mod.status === 'Available to Join' ? (
-                        <button
-                          onClick={() => enrollTraining(mod.id)}
-                          className="px-3.5 py-1.5 rounded-xl bg-coop-700 hover:bg-coop-800 text-white text-xs font-bold transition-colors shadow-sm"
-                        >
-                          Enroll Free
-                        </button>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => enrollTraining(mod.id)}
+                            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200"
+                          >
+                            Enroll
+                          </button>
+                          <button
+                            onClick={() => openQuiz(mod)}
+                            className="px-3.5 py-1.5 rounded-xl bg-coop-700 hover:bg-coop-800 text-white text-xs font-bold shadow-sm flex items-center gap-1"
+                          >
+                            <FileCheck className="w-3.5 h-3.5" /> Take Certification Quiz
+                          </button>
+                        </div>
+                      ) : mod.status === 'Enrolled' ? (
+                        <button onClick={() => openQuiz(mod)} className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold">Complete Quiz to Certify</button>
                       ) : (
-                        <span className="text-xs font-bold text-slate-700">
-                          {mod.status === 'Completed' ? "Certified ✓" : "In Progress"}
-                        </span>
+                        <span className="text-xs font-bold text-emerald-700 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Certified ✓</span>
                       )}
                     </div>
                   </div>
@@ -362,6 +398,49 @@ export const CooperativePortal = () => {
               </div>
             ))}
           </div>
+
+          {/* Certification Quiz Modal */}
+          {quizFor && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
+              <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+                <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                  <h3 className="text-sm font-black text-slate-900">Certification Quiz — {quizFor.title}</h3>
+                  <button onClick={()=>setQuizFor(null)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+                <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+                  {!quizResult ? (
+                    <>
+                      <p className="text-xs text-slate-600">Answer 3 questions (66% to pass). NSQF-aligned verifiable certificate issued on pass.</p>
+                      {getQuizForModule(quizFor.id).map((qq, idx) => (
+                        <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                          <div className="text-xs font-bold text-slate-900">{idx+1}. {qq.q}</div>
+                          <div className="space-y-1.5">
+                            {qq.a.map((opt, oi) => (
+                              <label key={oi} className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs cursor-pointer ${quizAnswers[idx]===oi ? 'bg-brand-50 border-brand-300 font-bold' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                                <input type="radio" name={`q-${idx}`} checked={quizAnswers[idx]===oi} onChange={()=>setQuizAnswers(prev=>({...prev, [idx]: oi}))} className="w-3.5 h-3.5" />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={submitCurrentQuiz} className="w-full py-3 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold">Submit & Generate Certificate</button>
+                    </>
+                  ) : (
+                    <div className={`p-5 rounded-2xl border text-center space-y-3 ${quizResult.passed ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${quizResult.passed ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                        {quizResult.passed ? <CheckCircle2 className="w-6 h-6" /> : <HelpCircle className="w-6 h-6" />}
+                      </div>
+                      <div className={`text-lg font-black ${quizResult.passed ? 'text-emerald-900' : 'text-red-900'}`}>{quizResult.passed ? 'Certified!' : 'Not Passed — Try Again'}</div>
+                      <div className="text-xs text-slate-700">Score: <strong>{quizResult.score}/{quizResult.total}</strong> • Certificate: <span className="font-mono font-bold">{quizResult.certNo}</span> • Status: <strong>{quizResult.status}</strong></div>
+                      <div className="text-[11px] text-slate-500">Valid till {new Date(quizResult.validTill).toLocaleDateString()} • Verifiable via platform ledger</div>
+                      <button onClick={()=>setQuizFor(null)} className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold">Close</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       )}
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { X, Printer, Download, ShieldCheck, Award, Building, CheckCircle2 } from 'lucide-react';
+import jsPDF from 'jspdf';
 
 export const InvoiceModal = () => {
   const { activePaymentForInvoice, setActivePaymentForInvoice } = useApp();
@@ -10,6 +11,43 @@ export const InvoiceModal = () => {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadPdf = () => {
+    try {
+      const doc = new jsPDF();
+      doc.setFontSize(18);
+      doc.text('Zolve Cooperative — Tax Invoice', 14, 18);
+      doc.setFontSize(9);
+      doc.text(`Zolve Cooperative Services Ecosystem Ltd. | GSTIN: 29AAACZ1092M1Z4`, 14, 24);
+      doc.text(`Invoice: ${b.bookingCode}-INV | Date: ${b.scheduledDate} ${b.scheduledTime || ''}`, 14, 30);
+      doc.text(`Status: PAID (CAPTURED) via Razorpay`, 14, 36);
+      doc.setFontSize(10);
+      doc.text(`Billed To: ${b.customerName || 'Customer'} | ${b.customerPhone || ''}`, 14, 44);
+      doc.text(`Address: ${(b.address || '').slice(0, 90)}`, 14, 50);
+      doc.text(`Provider: ${b.providerName} (${b.providerTitle || ''}) ${b.isCoopMember ? '— Cooperative Delegate' : ''}`, 14, 56);
+      doc.text(`Razorpay Order: ${b.razorpayOrderId || '-'} | Payment: ${b.paymentId || '-'} | Mode: ${b.paymentMethod || '-'}`, 14, 62);
+      let y = 72;
+      doc.setFontSize(11);
+      doc.text('Itemized Charges', 14, y); y += 6;
+      doc.setFontSize(9);
+      const rows = [
+        [b.serviceName || 'Service', '1', `Rs. ${b.baseAmount}`],
+        ['Platform Fee (8%)', '1', `Rs. ${b.platformFee || 80}`],
+        ['Cooperative Reserve (4%)', '1', `Rs. ${b.coopReserveFee || 40}`],
+        ['GST (18% on fees)', '1', `Rs. ${b.taxes || 44}`],
+      ];
+      // table header
+      doc.setFont(undefined, 'bold');
+      doc.text('Description', 14, y); doc.text('Qty', 120, y); doc.text('Amount', 160, y); y += 6;
+      doc.setFont(undefined, 'normal');
+      rows.forEach(r => { doc.text(r[0], 14, y); doc.text(r[1], 120, y); doc.text(r[2], 160, y); y += 6; });
+      y += 4; doc.setFont(undefined, 'bold'); doc.text(`Total Paid: Rs. ${b.totalAmount}`, 140, y);
+      y += 10; doc.setFontSize(8); doc.setFont(undefined, 'normal');
+      doc.text('Cooperative Quality & Fair Trade Verified — Digitally authenticated by Zolve Ledger', 14, y);
+      doc.text('Funds held in escrow until service completion. 4% welfare fund supports tool grants & accident cover.', 14, y+6);
+      doc.save(`${b.bookingCode}-Invoice.pdf`);
+    } catch (e) { console.error('PDF error', e); window.print(); }
   };
 
   return (
@@ -22,11 +60,18 @@ export const InvoiceModal = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={handleDownloadPdf}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download PDF</span>
+            </button>
+            <button
               onClick={handlePrint}
-              className="px-3 py-1.5 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold flex items-center gap-1 shadow-sm"
+              className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 shadow-sm"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print / PDF</span>
+              <span>Print</span>
             </button>
             <button
               onClick={() => setActivePaymentForInvoice(null)}
