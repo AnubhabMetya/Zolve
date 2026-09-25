@@ -1,7 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { X, Printer, Download, ShieldCheck, Award, Building, CheckCircle2 } from 'lucide-react';
-import jsPDF from 'jspdf';
 
 export const InvoiceModal = () => {
   const { activePaymentForInvoice, setActivePaymentForInvoice } = useApp();
@@ -13,8 +12,9 @@ export const InvoiceModal = () => {
     window.print();
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     try {
+      const { default: jsPDF } = await import('jspdf');
       const doc = new jsPDF();
       doc.setFontSize(18);
       doc.text('Zolve Cooperative — Tax Invoice', 14, 18);

@@ -24,6 +24,7 @@ import { SupportTicketService } from '../services/supportTicketService';
 import { SocietyService } from '../services/societyService';
 import { resolveCity } from '../services/cityResolver';
 import { isGeolocationSupported, getCurrentPosition, reverseGeocode } from '../services/locationService';
+import { createCoverageForBooking } from '../services/insuranceService';
 
 const AppContext = createContext(null);
 
@@ -1510,7 +1511,6 @@ export const AppProvider = ({ children }) => {
     if (newStatus === 'SERVICE_COMPLETED') {
       try {
         const b = bookings.find(x => x.id === bookingId) || {};
-        const { createCoverageForBooking } = await import('../services/insuranceService.js');
         await createCoverageForBooking({
           bookingId,
           providerId: b.providerId || b.provider_id || currentUser?.id || 'demo-provider-01',

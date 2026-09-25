@@ -25,6 +25,7 @@ import { WorkforceAllocation } from '../ai/WorkforceAllocation';
 import { TrustAnomalyDashboard } from '../ai/TrustAnomalyDashboard';
 import { EmergencyDispatch } from '../ai/EmergencyDispatch';
 import { loadForecastPredictions } from '../../services/aiDataLoader.js';
+import { verifyKyc } from '../../services/kycService.js';
 import { useAuth } from '../../context/AuthContext';
 import { ExecutiveApplicationService } from '../../services/executiveApplicationService';
 import { supabase, isSupabaseConfigured } from '../../lib/supabaseClient';
@@ -461,7 +462,7 @@ export const AdminDashboard = () => {
                       onClick={async () => {
                         const kyc = getKycFor(p.id);
                         if (!kyc) { alert('No document to verify — ask provider to upload'); return; }
-                        try { const { verifyKyc } = await import('../../services/kycService.js'); await verifyKyc(p.id, true); setKycRefresh(x=>x+1); } catch {}
+                        try { await verifyKyc(p.id, true); setKycRefresh(x=>x+1); } catch {}
                         approveProviderKYC(p.id);
                       }}
                       className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"

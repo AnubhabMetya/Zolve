@@ -165,14 +165,6 @@ export const Navbar = () => {
                   {t('nav.community')}
                 </button>
                 <button
-                  onClick={() => handleNavClick('trust')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'trust' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  {t('nav.trust')}
-                </button>
-                <button
                   onClick={() => handleNavClick('society')}
                   className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     activeTab === 'society' ? 'text-brand-900 font-semibold bg-brand-50' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -288,12 +280,6 @@ export const Navbar = () => {
                   className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900"
                 >
                   Governance
-                </button>
-                <button
-                  onClick={() => handleNavClick('trust')}
-                  className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900"
-                >
-                  Trust & Disputes
                 </button>
               </>
             ) : null}
@@ -543,7 +529,6 @@ export const Navbar = () => {
               <button onClick={() => handleNavClick('home')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Services & Search</button>
               <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">The Cooperative Ecosystem</button>
               <button onClick={() => handleNavClick('community')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Community Projects</button>
-              <button onClick={() => handleNavClick('trust')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Trust & Safety</button>
               <button onClick={() => handleNavClick('society')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Housing Society Portal</button>
             </>
           ) : activeRole === 'customer' ? (
@@ -570,7 +555,6 @@ export const Navbar = () => {
             <>
               <button onClick={() => handleNavClick('admin')} className="w-full text-left px-3 py-2 text-sm font-semibold text-brand-900 bg-brand-50 rounded-lg">Admin</button>
               <button onClick={() => handleNavClick('cooperative')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Governance</button>
-              <button onClick={() => handleNavClick('trust')} className="w-full text-left px-3 py-2 text-sm font-semibold text-slate-800 rounded-lg hover:bg-slate-50">Trust & Disputes</button>
             </>
           ) : null}
           {isAuthenticated ? (

@@ -6,6 +6,11 @@ import { ExecutiveApplicationService } from '../../services/executiveApplication
 import { haversineKm } from '../../services/locationService';
 import { CommunityOperationsCenter } from './CommunityOperationsCenter';
 import { ExecutiveJobDiscovery } from './ExecutiveJobDiscovery';
+import { DEMO_USERS } from '../../data/mockData';
+import { PARTNER_SERVICES } from '../../data/partnerServices';
+import { PartnerAccessGate } from './PartnerAccessGate';
+import { ExecutiveLandingHero } from './ExecutiveLandingHero';
+import MapView from '../common/MapView';
 import {
   ShieldCheck,
   Clock,
@@ -42,6 +47,8 @@ export const ExecutiveDashboard = () => {
   const { user: supaUser } = useAuth();
   const [checking, setChecking] = useState(false);
   const [activeTab, setActiveTab] = useState('overview'); // overview, nearby, my_jobs, skills, performance, notifications
+  const [isOnline, setIsOnline] = useState(false);
+  const [showSelfie, setShowSelfie] = useState(false);
 
   // Real-time polling heartbeat fallback every 3s while pending
   useEffect(() => {
@@ -67,13 +74,78 @@ export const ExecutiveDashboard = () => {
     setTimeout(() => setChecking(false), 600);
   };
 
+  // Real onboarding fallback: use actual input from JoinExecutivePage draft (zolve_join_step_v1 / zolve_onboarding_draft) — not demo
+  const onboardingDraft = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem('zolve_join_step_v1') || localStorage.getItem('zolve_onboarding_draft');
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (!p || !p.fullName || !p.serviceIds?.length) return null;
+      return p;
+    } catch { return null; }
+  }, []);
+  const demoEnabled = typeof window !== 'undefined' && (import.meta.env.VITE_ENABLE_DEMO === 'true' || new URLSearchParams(window.location.search).has('demo'));
+  const isDemoPreview = !currentUser || currentUser.role !== 'executive';
+  // Prefer real onboarding data, fallback to demo only when explicitly ?demo
+  const effectiveUser = (() => {
+    if (!isDemoPreview) return currentUser;
+    if (onboardingDraft) {
+      const { fullName, gmailAddress, mobileNumber, serviceIds, verticalId, addressLine, dob } = onboardingDraft;
+      // map serviceIds to display names
+      let displayServices = (serviceIds || []).map(id => {
+        const s = PARTNER_SERVICES.find(x => x.id === id);
+        return s ? s.name : id;
+      });
+      if (!displayServices.length && serviceIds?.length) {
+        const nameMap = { 'ac-appliances':'AC & Appliances','plumbing':'Plumbing','electrical':'Electrical','cleaning':'Cleaning','carpentry':'Carpentry','painting':'Painting','gardening':'Gardening','home-chef':'Home Chef','elder-care':'Elder Care','child-care':'Child Care','drivers':'Drivers','home-nursing':'Home Nursing','pest-control':'Pest Control','moving':'Moving & Heavy Lifting','community-services':'Community Services'};
+        displayServices = serviceIds.map(id => nameMap[id] || id);
+      }
+      return {
+        id: `onboard-${(gmailAddress||fullName||'partner').toLowerCase().replace(/[^a-z0-9]/g,'-')}`,
+        name: fullName || 'Partner',
+        email: gmailAddress || '',
+        phone: mobileNumber || '',
+        role: 'executive',
+        executiveVertical: verticalId || 'household',
+        executiveStatus: 'active',
+        coordinates: null,
+        location: addressLine || null,
+        dob: dob || null,
+        addressLine: addressLine || null,
+        assignedServices: displayServices,
+        isOnboardingDraft: true,
+      };
+    }
+    if (demoEnabled) {
+      return {
+        ...DEMO_USERS.executiveHousehold,
+        id: DEMO_USERS.executiveHousehold.id,
+        name: DEMO_USERS.executiveHousehold.name,
+        email: DEMO_USERS.executiveHousehold.email,
+        phone: DEMO_USERS.executiveHousehold.phone,
+        role: 'executive',
+        executiveVertical: DEMO_USERS.executiveHousehold.executiveVertical,
+        executiveStatus: 'active',
+        coordinates: { lat: 22.5726, lng: 88.3639 },
+        location: DEMO_USERS.executiveHousehold.location,
+        assignedServices: DEMO_USERS.executiveHousehold.assignedServices,
+      };
+    }
+    return currentUser;
+  })();
+
+  const dashboardUser = (!currentUser || currentUser.role !== 'executive') && (onboardingDraft || demoEnabled) ? effectiveUser : currentUser;
+  const displayUser = effectiveUser || currentUser;
+  const bannerUser = displayUser;
+  const activeExecutiveUser = dashboardUser;
+
   // All hooks must be called unconditionally before any conditional return (Finding 3)
-  const assignedSkills = currentUser?.assignedServices || [];
-  const execCoords = currentUser?.coordinates || { lat: 22.5726, lng: 88.3639 };
+  const assignedSkills = dashboardUser?.assignedServices || effectiveUser?.assignedServices || [];
+  const execCoords = dashboardUser?.coordinates || effectiveUser?.coordinates || { lat: 22.5726, lng: 88.3639 };
 
   // Calculate nearby opportunities (strictly <= 50 km and matches at least one assigned skill)
   const nearbyJobs = useMemo(() => {
-    if (!currentUser || currentUser.role !== 'executive' || isExecutivePending(currentUser) || currentUser.executiveVertical === 'community') return [];
+    if (!dashboardUser || dashboardUser.role !== 'executive' || isExecutivePending(dashboardUser) || dashboardUser.executiveVertical === 'community') return [];
     return bookings.filter((b) => {
       if (declinedJobIds?.has(b.id)) return false;
       const status = String(b.bookingStatus || '').toUpperCase();
@@ -94,32 +166,32 @@ export const ExecutiveDashboard = () => {
       const dist = haversineKm(execCoords.lat, execCoords.lng, jobLat, jobLng);
       return dist <= 50.0;
     });
-  }, [bookings, declinedJobIds, assignedSkills, execCoords, currentUser]);
+  }, [bookings, declinedJobIds, assignedSkills, execCoords, dashboardUser]);
 
   // My Accepted / Active Jobs — restricted to jobs actually assigned to this executive (Finding 4)
   const myAcceptedJobs = useMemo(() => {
-    if (!currentUser?.id) return [];
-    const myId = currentUser.id;
+    if (!dashboardUser?.id) return [];
+    const myId = dashboardUser.id;
     return bookings.filter((b) => {
       const assignedId = b.assignedExecutiveId || b.assigned_executive_id || b.executiveAssignedId || b.executive_assigned_id || b.assignedExecutive_id;
       return assignedId === myId;
     });
-  }, [bookings, currentUser?.id]);
+  }, [bookings, dashboardUser?.id]);
 
   const completedJobs = useMemo(() => {
-    if (!currentUser?.id) return [];
-    const myId = currentUser.id;
+    if (!dashboardUser?.id) return [];
+    const myId = dashboardUser.id;
     return bookings.filter(
       (b) =>
         (b.assignedExecutiveId === myId || b.executiveAssignedId === myId || b.assigned_executive_id === myId || b.executive_assigned_id === myId) &&
         b.bookingStatus === 'SERVICE_COMPLETED'
     );
-  }, [bookings, currentUser?.id]);
+  }, [bookings, dashboardUser?.id]);
 
-  if (!currentUser || currentUser.role !== 'executive') return null;
+  if (!dashboardUser || dashboardUser.role !== 'executive') return <PartnerAccessGate />;
 
   // 1. PENDING STATE (Community Executive awaiting Society Admin approval)
-  if (isExecutivePending(currentUser)) {
+  if (isExecutivePending(dashboardUser)) {
     return (
       <div className="py-14 text-center space-y-6 max-w-xl mx-auto">
         <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
@@ -150,15 +222,15 @@ export const ExecutiveDashboard = () => {
         <div className="p-5 rounded-2xl bg-white border border-slate-200 text-xs text-left space-y-2.5 shadow-subtle">
           <div className="flex justify-between items-center pb-2 border-b border-slate-100">
             <span className="text-slate-500">Vertical:</span>
-            <strong className="text-slate-900">{currentUser.executiveVertical} Services</strong>
+            <strong className="text-slate-900">{dashboardUser.executiveVertical} Services</strong>
           </div>
           <div className="flex justify-between items-center pb-2 border-b border-slate-100">
             <span className="text-slate-500">Applicant:</span>
-            <strong className="text-slate-900">{currentUser.name}</strong>
+            <strong className="text-slate-900">{dashboardUser.name}</strong>
           </div>
           <div className="flex justify-between items-center pb-2 border-b border-slate-100">
             <span className="text-slate-500">Email:</span>
-            <strong className="text-slate-900">{currentUser.email}</strong>
+            <strong className="text-slate-900">{dashboardUser.email}</strong>
           </div>
           <div className="flex justify-between items-center pb-2 border-b border-slate-100">
             <span className="text-slate-500">Status:</span>
@@ -166,11 +238,11 @@ export const ExecutiveDashboard = () => {
               PENDING APPROVAL
             </span>
           </div>
-          {currentUser.assignedServices?.length > 0 && (
+          {dashboardUser.assignedServices?.length > 0 && (
             <div>
               <span className="text-slate-500 block mb-1">Selected Skills:</span>
               <div className="flex flex-wrap gap-1.5">
-                {currentUser.assignedServices.map((s) => (
+                {dashboardUser.assignedServices.map((s) => (
                   <span
                     key={s}
                     className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold text-[10px]"
@@ -198,31 +270,64 @@ export const ExecutiveDashboard = () => {
   }
 
   // 2. COMMUNITY EXECUTIVE (Approved / Active) -> Unlocks Community Operations Center
-  if (currentUser.executiveVertical === 'community') {
-    return <CommunityOperationsCenter executiveUser={currentUser} />;
+  if (dashboardUser.executiveVertical === 'community') {
+    return <CommunityOperationsCenter executiveUser={dashboardUser} />;
   }
 
   // 3. HOUSEHOLD & PERSONAL OPERATIONS DASHBOARD
 
+  const isDemoPreviewActive = (!currentUser || currentUser.role !== 'executive') && demoEnabled;
+  const isOnboardingPreviewActive = (!currentUser || currentUser.role !== 'executive') && !!onboardingDraft;
   return (
     <div className="space-y-6 pb-20 max-w-6xl mx-auto">
+      {isOnboardingPreviewActive && (
+        <div className="px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold text-center">Preview — {dashboardUser.name} · {dashboardUser.assignedServices?.slice(0,2).join(', ')} {dashboardUser.assignedServices?.length>2?`+${dashboardUser.assignedServices.length-2}`:''} · <span className="font-normal">Onboarding data</span></div>
+      )}
+      {isDemoPreviewActive && !isOnboardingPreviewActive && (
+        <div className="px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold text-center">Demo Preview — Executive Arjun Patel (Household) · <span className="font-normal">Sign in for your real account</span></div>
+      )}
+      <ExecutiveLandingHero user={dashboardUser} onGoJobs={() => setActiveTab('nearby')} />
+      {/* Partner Header — Good Morning / Partner ID / Online */}
+      <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-subtle flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <img src={dashboardUser.avatar || `https://i.pravatar.cc/150?u=${encodeURIComponent(dashboardUser.email||dashboardUser.name)}`} alt={dashboardUser.name} className="w-12 h-12 rounded-full object-cover border-2 border-slate-200" />
+          <div>
+            <div className="text-xs text-slate-500">Good {new Date().getHours()<12?'Morning':new Date().getHours()<18?'Afternoon':'Evening'}, {dashboardUser.name?.split(' ')[0]||'Partner'}</div>
+            <div className="text-sm font-black text-slate-900">Partner ID: ZV-P-{(dashboardUser.id||'10452').toString().slice(-5).toUpperCase().padStart(5,'0')}</div>
+            <div className="text-[11px] font-bold flex items-center gap-1.5 mt-0.5">
+              <span className={`w-2 h-2 rounded-full ${isOnline?'bg-emerald-500 animate-pulse':'bg-red-500'}`}></span>
+              <span className={isOnline?'text-emerald-700':'text-red-600'}>{isOnline?'🟢 ONLINE':'🔴 OFFLINE'}</span>
+              <span className="text-slate-400 font-normal">· {dashboardUser.assignedServices?.slice(0,2).join(', ')}</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
+            <span className="w-7 h-7 rounded-full bg-black text-white flex items-center justify-center font-black text-xs">Z</span>
+            <span className="font-black tracking-tight text-slate-900">ZOLVE PARTNER</span>
+          </div>
+          <button onClick={()=> { if(isOnline) setIsOnline(false); else setShowSelfie(true); }} className={`px-6 py-2.5 rounded-xl text-sm font-black shadow-md transition-colors ${isOnline?'bg-slate-900 text-white':'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+            {isOnline?'GO OFFLINE':'GO ONLINE'}
+          </button>
+        </div>
+      </div>
       {/* Top Banner */}
       <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-subtle flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-700 to-indigo-700 flex items-center justify-center text-white text-xl font-bold shadow-md">
-            {currentUser.name ? currentUser.name.charAt(0) : 'E'}
+            {dashboardUser.name ? dashboardUser.name.charAt(0) : 'E'}
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-black text-slate-900 font-display">
-                {currentUser.name}
+                {dashboardUser.name}
               </h1>
               <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold border border-emerald-200 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                 ACTIVE EXECUTIVE
               </span>
               <span className="px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-700 text-[11px] font-bold border border-brand-200">
-                {currentUser.executiveVertical === 'personal'
+                {dashboardUser.executiveVertical === 'personal'
                   ? 'Personal & Family'
                   : 'Household Services'}
               </span>
@@ -230,18 +335,18 @@ export const ExecutiveDashboard = () => {
             <div className="text-xs text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
               <span className="flex items-center gap-1 text-slate-700">
                 <Mail className="w-3.5 h-3.5 text-coop-600" />
-                {currentUser.email}
+                {dashboardUser.email}
               </span>
               <span className="flex items-center gap-1 text-slate-700">
                 <Phone className="w-3.5 h-3.5 text-coop-600" />
-                {currentUser.phone || '+91 98765 43210'}
+                {dashboardUser.phone || '+91 98765 43210'}
               </span>
               <span className="flex items-center gap-1 text-slate-700 font-medium">
                 <MapPin className="w-3.5 h-3.5 text-brand-600" />
-                {currentUser.location || 'Local Coverage Area'}
-                {currentUser.locationAccuracy && (
+                {dashboardUser.location || 'Local Coverage Area'}
+                {dashboardUser.locationAccuracy && (
                   <span className="text-[10px] text-slate-400">
-                    (±{Math.round(currentUser.locationAccuracy)}m)
+                    (±{Math.round(dashboardUser.locationAccuracy)}m)
                   </span>
                 )}
               </span>
@@ -391,6 +496,106 @@ export const ExecutiveDashboard = () => {
             </div>
           </div>
 
+          {/* Live Location + Heatmap */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-subtle space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-900">YOUR LIVE LOCATION</h3>
+                <span className="text-[11px] font-bold px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">📍 YOU</span>
+              </div>
+              <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-50" style={{height:220}}>
+                <MapView providerPos={execCoords} customerPos={null} height="220px" interactive={true} />
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>🔵 You</span><span>🟠 Active Job</span><span>🟣 Upcoming</span>
+                <span className="ml-auto text-[11px]">Fallback: {execCoords.lat.toFixed(4)}, {execCoords.lng.toFixed(4)}</span>
+              </div>
+            </div>
+            <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-subtle space-y-3">
+              <h3 className="text-sm font-black text-slate-900">LIVE DEMAND MAP</h3>
+              <p className="text-xs text-slate-500">High-demand areas near you <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200">Demo · simulated from provider dataset</span></p>
+              <div className="grid grid-cols-4 gap-2 h-[180px]">
+                {[
+                  {label:'Salt Lake', level:'VERY HIGH', bg:'bg-red-500'},
+                  {label:'New Town', level:'HIGH', bg:'bg-orange-500'},
+                  {label:'Park St', level:'MEDIUM', bg:'bg-amber-400'},
+                  {label:'Howrah', level:'LOW', bg:'bg-emerald-300'},
+                ].map(z=>(
+                  <div key={z.label} className={`rounded-2xl ${z.bg} text-white p-3 flex flex-col justify-between`}>
+                    <span className="text-[10px] font-bold tracking-wider">{z.level}</span>
+                    <span className="text-xs font-black">{z.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 text-[10px] font-bold">
+                <span className="px-2 py-1 rounded bg-emerald-100 border">LOW</span>
+                <span className="px-2 py-1 rounded bg-amber-100 border">MEDIUM</span>
+                <span className="px-2 py-1 rounded bg-orange-100 border">HIGH</span>
+                <span className="px-2 py-1 rounded bg-red-100 border">VERY HIGH</span>
+                <span className="ml-auto text-slate-500 font-normal">12 requests nearby · Peak in 2h</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Earnings + Incentive */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-subtle space-y-3">
+              <h3 className="text-sm font-black text-slate-900">MY EARNINGS</h3>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-2xl bg-slate-50 border"> <div className="text-[11px] text-slate-500 font-bold">Today</div><div className="text-lg font-black">₹1,850</div></div>
+                <div className="p-3 rounded-2xl bg-slate-50 border"> <div className="text-[11px] text-slate-500 font-bold">This Week</div><div className="text-lg font-black">₹8,420</div></div>
+                <div className="p-3 rounded-2xl bg-slate-50 border"> <div className="text-[11px] text-slate-500 font-bold">This Month</div><div className="text-lg font-black">₹27,650</div></div>
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200"> <div className="text-[11px] text-emerald-700 font-bold">Available for payout</div><div className="text-lg font-black text-emerald-700">₹6,420</div></div>
+              </div>
+              <div className="text-[11px] text-slate-500">Gross ₹2,100 · Zolve 8% · Material 4% · <span className="font-bold">Net ₹1,850</span></div>
+              <button onClick={()=>setActiveTab('my_jobs')} className="w-full py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">VIEW EARNINGS</button>
+            </div>
+            <div className="bg-gradient-to-br from-violet-600 to-indigo-700 rounded-3xl p-5 text-white space-y-3 shadow-premium">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black">TODAY'S ZOLVE INCENTIVES</h3>
+                <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-white/20 border border-white/20">ACTIVE TODAY · Exp 11:59 PM</span>
+              </div>
+              {(() => {
+                const day = new Date().getDate() % 4;
+                const incentives = [
+                  {title:'Complete 5 jobs today', target:5, reward:500},
+                  {title:'Complete 4 jobs today', target:4, reward:400},
+                  {title:'Complete 3 electrical jobs before 6 PM', target:3, reward:350},
+                  {title:'Complete 6 jobs today', target:6, reward:750},
+                ];
+                const inc = incentives[day];
+                const progress = Math.min(completedJobs.length, inc.target);
+                const pct = Math.round((progress/inc.target)*100);
+                return (
+                  <div className="bg-white rounded-2xl p-4 text-slate-900 space-y-2">
+                    <div className="text-sm font-black">{inc.title}</div>
+                    <div className="text-xs text-slate-500">Progress {progress} / {inc.target} · Reward ₹{inc.reward}</div>
+                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-violet-600 rounded-full transition-all" style={{width:`${pct}%`}} /></div>
+                    <div className="text-[11px] font-bold">{pct}% · Remaining {Math.max(0, inc.target-progress)} jobs</div>
+                  </div>
+                );
+              })()}
+              <div className="text-[11px] text-violet-100">Dynamic · changes daily · demo seeded</div>
+            </div>
+          </div>
+
+          {/* Availability */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-subtle space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-900">MY AVAILABILITY</h3>
+              <span className={`px-2.5 py-1 rounded-full text-[11px] font-black border ${isOnline?'bg-emerald-50 text-emerald-700 border-emerald-200':'bg-slate-100 text-slate-600 border-slate-200'}`}>{isOnline?'ONLINE — Receiving requests':'OFFLINE — No new requests'}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200"><div className="font-bold">09:00 — 13:00</div><div className="text-[11px] text-emerald-700">AVAILABLE</div></div>
+              <div className="p-3 rounded-xl bg-slate-100 border"><div className="font-bold">13:00 — 15:00</div><div className="text-[11px] text-slate-500">UNAVAILABLE</div></div>
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200"><div className="font-bold">15:00 — 20:00</div><div className="text-[11px] text-emerald-700">AVAILABLE</div></div>
+            </div>
+            <div className="flex gap-2">
+              <button className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold">+ ADD AVAILABILITY</button>
+              <button className="flex-1 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">BLOCK TIME</button>
+            </div>
+          </div>
+
           {/* Assigned Skills & Quick Discovery CTA */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 p-6 rounded-3xl bg-white border border-slate-200 shadow-subtle space-y-4">
@@ -509,7 +714,7 @@ export const ExecutiveDashboard = () => {
 
       {/* 2. NEARBY JOBS DISCOVERY TAB */}
       {activeTab === 'nearby' && (
-        <ExecutiveJobDiscovery executiveUser={currentUser} executiveSkills={assignedSkills} />
+        <ExecutiveJobDiscovery executiveUser={dashboardUser} executiveSkills={assignedSkills} />
       )}
 
       {/* 3. MY ACCEPTED JOBS TAB */}
@@ -668,23 +873,23 @@ export const ExecutiveDashboard = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
                 <span className="text-slate-400 block mb-1">Full Name</span>
-                <strong className="text-slate-900 text-sm">{currentUser.name}</strong>
+                <strong className="text-slate-900 text-sm">{dashboardUser.name}</strong>
               </div>
               <div>
                 <span className="text-slate-400 block mb-1">Email Verification</span>
                 <span className="text-slate-900 font-semibold flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  {currentUser.email} (Email OTP Verified)
+                  {dashboardUser.email} (Email OTP Verified)
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 block mb-1">Operating Base</span>
                 <strong className="text-slate-900">
-                  {currentUser.location || 'Local Region'}
-                  {currentUser.locationAccuracy && (
+                  {dashboardUser.location || 'Local Region'}
+                  {dashboardUser.locationAccuracy && (
                     <span className="text-slate-400 font-normal">
                       {' '}
-                      (GPS Accuracy: ±{Math.round(currentUser.locationAccuracy)}m)
+                      (GPS Accuracy: ±{Math.round(dashboardUser.locationAccuracy)}m)
                     </span>
                   )}
                 </strong>
@@ -806,6 +1011,36 @@ export const ExecutiveDashboard = () => {
               ))}
             </div>
           )}
+        </div>
+      )}
+      {/* Live Selfie Verification — only on GO ONLINE */}
+      {showSelfie && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-xl">
+            <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center mx-auto">📸</div>
+            <h3 className="text-sm font-black text-slate-900">Live Selfie Verification</h3>
+            <p className="text-xs text-slate-500">Liveness + Identity Match required only when you go ONLINE. App works offline without selfie.</p>
+            <div className="w-28 h-28 rounded-full bg-slate-100 mx-auto flex items-center justify-center border-2 border-dashed">Selfie Preview</div>
+            <div className="flex gap-2">
+              <button onClick={()=>setShowSelfie(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold">Cancel</button>
+              <button onClick={()=>{setShowSelfie(false); setIsOnline(true);}} className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">Verify & Go Online</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Live Job Request — visible only when ONLINE */}
+      {isOnline && (
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-96 z-40">
+          <div className="p-4 rounded-3xl bg-white border-2 border-emerald-200 shadow-premium space-y-2">
+            <div className="text-[11px] font-black text-emerald-700 tracking-wider">NEW SERVICE REQUEST</div>
+            <div className="text-sm font-bold text-slate-900">AC Repair · 4:00 PM — 6:00 PM · 3.2 km</div>
+            <div className="text-xs text-slate-500">Estimated Earnings: <span className="font-black text-emerald-700">₹650</span> · FairMatch eligible</div>
+            <div className="flex gap-2 mt-2">
+              <button onClick={()=>setIsOnline(true)} className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">ACCEPT</button>
+              <button onClick={()=>setIsOnline(false)} className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold">DECLINE</button>
+            </div>
+            <p className="text-[10px] text-slate-400">Offline: no new requests — you can still view earnings/calendar/jobs.</p>
+          </div>
         </div>
       )}
     </div>

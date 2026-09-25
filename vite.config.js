@@ -38,4 +38,24 @@ export default defineConfig({
   ],
   envDir: '.',
   envPrefix: 'VITE_',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('leaflet') || id.includes('react-leaflet')) return 'leaflet';
+            if (id.includes('@supabase')) return 'supabase';
+            if (id.includes('framer-motion')) return 'motion';
+            if (id.includes('jspdf')) return 'pdf';
+            if (id.includes('html2canvas')) return 'canvas';
+            if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n';
+            if (id.includes('lucide-react')) return 'lucide';
+            if (id.includes('react-router')) return 'router';
+            if (id.includes('react-dom') || id.includes('react/')) return 'vendor';
+          }
+          if (id.includes('src/data/mockData')) return 'mockData';
+        },
+      },
+    },
+  },
 })

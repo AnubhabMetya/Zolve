@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from './context/AppContext';
@@ -14,35 +14,36 @@ import { SignupPage } from './pages/SignupPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 
-// Customer Modules
-import { CustomerDashboard } from './components/customer/CustomerDashboard';
 import { ServiceSearch } from './components/customer/ServiceSearch';
 import { ProviderProfileModal } from './components/customer/ProviderProfileModal';
 import { BookingModal } from './components/customer/BookingModal';
 import { LiveBookingTracker } from './components/customer/LiveBookingTracker';
-import { CustomerPaymentHistory } from './components/customer/CustomerPaymentHistory';
 import { InvoiceModal } from './components/customer/InvoiceModal';
 import { ReviewModal } from './components/customer/ReviewModal';
-
-// Provider Modules
-import { ProviderDashboard } from './components/provider/ProviderDashboard';
-import { EarningsLedger } from './components/provider/EarningsLedger';
-
-// Executive Modules
-import { JoinExecutivePage } from './components/executive/JoinExecutivePage';
-import { ExecutiveDashboard } from './components/executive/ExecutiveDashboard';
-
-// Cooperative & Community Modules
-import { CooperativePortal } from './components/cooperative/CooperativePortal';
-import { CommunityPortal } from './components/community/CommunityPortal';
-import { SocietyDashboard } from './components/society/SocietyDashboard';
-
-// Trust, Safety & Admin Modules
-import { TrustAndSafety } from './components/trust/TrustAndSafety';
 import { ReportProblemModal } from './components/trust/ReportProblemModal';
-import { AdminDashboard } from './components/admin/AdminDashboard';
-import { ProfilePage } from './components/profile/ProfilePage';
 import { getVisibleBookings } from './services/accessControl';
+
+// Route-level code splitting for large, non-initial routes
+const CustomerDashboard = lazy(() => import('./components/customer/CustomerDashboard').then(m => ({ default: m.CustomerDashboard })));
+const ProviderDashboard = lazy(() => import('./components/provider/ProviderDashboard').then(m => ({ default: m.ProviderDashboard })));
+const EarningsLedger = lazy(() => import('./components/provider/EarningsLedger').then(m => ({ default: m.EarningsLedger })));
+const JoinExecutivePage = lazy(() => import('./components/executive/JoinExecutivePage').then(m => ({ default: m.JoinExecutivePage })));
+const ExecutiveDashboard = lazy(() => import('./components/executive/ExecutiveDashboard').then(m => ({ default: m.ExecutiveDashboard })));
+const CooperativePortal = lazy(() => import('./components/cooperative/CooperativePortal').then(m => ({ default: m.CooperativePortal })));
+const CommunityPortal = lazy(() => import('./components/community/CommunityPortal').then(m => ({ default: m.CommunityPortal })));
+const SocietyDashboard = lazy(() => import('./components/society/SocietyDashboard').then(m => ({ default: m.SocietyDashboard })));
+const TrustAndSafety = lazy(() => import('./components/trust/TrustAndSafety').then(m => ({ default: m.TrustAndSafety })));
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const ProfilePage = lazy(() => import('./components/profile/ProfilePage').then(m => ({ default: m.ProfilePage })));
+const CustomerPaymentHistory = lazy(() => import('./components/customer/CustomerPaymentHistory').then(m => ({ default: m.CustomerPaymentHistory })));
+
+const RouteFallback = () => (
+  <div className="py-16 text-center">
+    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
+      <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" /> Loading...
+    </div>
+  </div>
+);
 
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
@@ -126,16 +127,18 @@ export function AppContent() {
     // intentionally do NOT push '/' when leaving join-executive — prevents post-OTP bounce to landing
   }, [activeTab]);
 
+  const isPartnerRoute = location.pathname.startsWith('/partner') || location.pathname.startsWith('/executive')
   const isStandalonePage = ['/login','/signup','/forgot','/reset','/auth/callback','/search'].includes(location.pathname)
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC] dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-brand-500 selection:text-white">
-      {/* Top Main Navigation — hidden on standalone auth/search pages for true separate landing */}
-      {!isStandalonePage && <Navbar />}
+      {/* Top Main Navigation — hidden on standalone auth/search pages and completely hidden on Partner App */}
+      {!isStandalonePage && !isPartnerRoute && <Navbar />}
 
       {/* Main Content View Switcher */}
-      <main className={isStandalonePage ? "flex-1 w-full" : "flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-8"}>
+      <main className={isStandalonePage || isPartnerRoute ? "flex-1 w-full" : "flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-8"}>
         <ErrorBoundary>
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login" element={<div className="min-h-[80vh] flex flex-col bg-[#F8FAFC] dark:bg-slate-950"><div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3"><button onClick={()=>navigate('/')} className="flex items-center gap-2"><div className="w-8 h-8 rounded-xl bg-black text-white font-black flex items-center justify-center">Z</div><span className="font-extrabold">Zolve</span></button></div></div><LoginPage /></div>} />
           <Route path="/signup" element={<div className="min-h-[80vh] flex flex-col bg-[#F8FAFC] dark:bg-slate-950"><div className="w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800"><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3"><button onClick={()=>navigate('/')} className="flex items-center gap-2"><div className="w-8 h-8 rounded-xl bg-black text-white font-black flex items-center justify-center">Z</div><span className="font-extrabold">Zolve</span></button><span className="text-xs text-slate-400">— Create Account</span></div></div><SignupPage /></div>} />
@@ -146,6 +149,8 @@ export function AppContent() {
           <Route path="/provider" element={<ProtectedRoute roles={['provider']}><ProviderDashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
           <Route path="/join-executive" element={<JoinExecutivePage />} />
+          <Route path="/partner" element={<div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950"><ExecutiveDashboard /></div>} />
+          <Route path="/executive" element={<Navigate to="/partner" replace />} />
           <Route path="/search" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><div className="mb-4 flex items-center gap-2 text-xs text-slate-500"><button onClick={()=>navigate('/')} className="hover:underline">← Back to Home</button><span>•</span><span>Explore Services</span></div><ServiceSearch initialSearch={searchParam} /></div>} />
           <Route path="/bookings" element={<ProtectedRoute><div className="space-y-6 pb-16"><div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-subtle flex items-center justify-between"><div><h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-display">My Bookings ({visibleBookings.length})</h1><p className="text-xs text-slate-500 mt-1">Track real-time provider arrival, chat with technicians, and review completed services.</p></div></div><div className="space-y-4">{!currentUser ? <div className="p-8 rounded-3xl bg-white border text-center"><p className="text-sm font-bold">Sign in to view your bookings</p><button onClick={()=>navigate('/login')} className="mt-3 px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Sign In</button></div> : visibleBookings.length===0 ? <div className="p-8 rounded-3xl bg-white border text-center text-sm text-slate-500">No bookings found.</div> : visibleBookings.map((b)=>(<div key={b.id} className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-subtle flex flex-col md:flex-row items-start md:items-center justify-between gap-6"><div className="flex items-start gap-4"><img src={b.providerAvatar} alt={b.providerName} className="w-16 h-16 rounded-2xl object-cover" /><div><span className="px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-700 font-bold text-xs">#{b.bookingCode}</span><h3 className="text-base font-bold text-slate-900">{b.serviceName}</h3><p className="text-xs text-slate-500">Provider: <strong className="text-slate-800">{b.providerName}</strong></p></div></div><button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Track & Details</button></div>))}</div></div></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
@@ -319,11 +324,12 @@ export function AppContent() {
         </AnimatePresence>
         } />
         </Routes>
+        </Suspense>
         </ErrorBoundary>
       </main>
 
-      {/* Global Footer — hidden on standalone auth/search pages for true separate landing */}
-      {!isStandalonePage && <Footer />}
+      {/* Global Footer — hidden on standalone auth/search pages and Partner App */}
+      {!isStandalonePage && !isPartnerRoute && <Footer />}
 
       {/* GLOBAL MODALS & DRAWERS */}
       <LocationModal />
