@@ -3,6 +3,8 @@
 // Free stack: Browser Geolocation API + Nominatim (OSM) + Haversine
 // ====================================================================
 
+import { CITY_HUBS } from '../data/mockData.js';
+
 const NOMINATIM_REVERSE = 'https://nominatim.openstreetmap.org/reverse';
 const NOMINATIM_SEARCH = 'https://nominatim.openstreetmap.org/search';
 
@@ -162,6 +164,66 @@ export function isValidIndianPincode(pin) {
   return /^[1-9]\d{5}$/.test(String(pin).trim());
 }
 
+// Locality aliases → hub city (offline, extendable). For typed addresses that
+// carry neither a pincode nor a city token (e.g. "Dhelua, Rajpur Sonarpur").
+const LOCALITY_TO_CITY = [
+  { match: ['rajpur sonarpur', 'sonarpur', 'dhelua', 'howrah', 'salt lake', 'sector v', 'new town', 'rajarhat', 'dum dum', 'behala', 'jadavpur', 'park street', 'garia'], city: 'Kolkata' },
+  { match: ['indiranagar', 'koramangala', 'whitefield', 'hsr layout', 'bellandur'], city: 'Bengaluru' },
+  { match: ['andheri', 'bandra', 'borivali', 'thane'], city: 'Mumbai' },
+  { match: ['lajpat nagar', 'rohini', 'dwarka', 'noida'], city: 'Delhi NCR' },
+];
+
+// Offline hub match (synchronous, no network): city/state token or locality alias.
+function matchOfflineHub(text) {
+  const lower = String(text || '').toLowerCase();
+  if (lower.length < 3) return null;
+  const hubByName = (CITY_HUBS || []).find((h) =>
+    (h.city && lower.includes(h.city.toLowerCase())) ||
+    (h.state && lower.includes(h.state.toLowerCase()))
+  );
+  if (hubByName) return { lat: hubByName.lat, lng: hubByName.lng, source: 'city' };
+  for (const alias of LOCALITY_TO_CITY) {
+    if (alias.match.some((m) => lower.includes(m))) {
+      const hub = (CITY_HUBS || []).find((h) => h.city === alias.city);
+      if (hub) return { lat: hub.lat, lng: hub.lng, source: 'locality' };
+    }
+  }
+  return null;
+}
+
+// Checkout-time address → coords. Every paid booking MUST carry a location for
+// the 50km allocation rule, so typed addresses resolve here (payment is blocked
+// when this returns null). Offline match is sync and returned immediately —
+// hub-center precision is enough for the 50km decision and the customer can
+// refine with map-drag; network (pincode/search) only refines when offline
+// found nothing, so this never stalls the UI when Nominatim is unreachable.
+export async function resolveCoordsFromText(text) {
+  const q = String(text || '').trim();
+  if (q.length < 3) return null;
+  // Offline first (sync, no console noise, instant): precise enough for the
+  // 50km decision. Network only refines when offline found nothing.
+  const offline = matchOfflineHub(q);
+  if (offline) return offline;
+  const pinMatch = q.match(/[1-9]\d{5}/);
+  if (pinMatch) {
+    try {
+      const res = await searchByPincode(pinMatch[0], 1);
+      const best = Array.isArray(res) ? res[0] : null;
+      if (best && Number.isFinite(best.lat) && Number.isFinite(best.lng)) {
+        return { lat: best.lat, lng: best.lng, source: 'pincode' };
+      }
+    } catch { /* fall through to search */ }
+  }
+  try {
+    const list = await searchPlaces(q, 1);
+    const best = Array.isArray(list) ? list[0] : null;
+    if (best && Number.isFinite(best.lat) && Number.isFinite(best.lng)) {
+      return { lat: best.lat, lng: best.lng, source: 'search' };
+    }
+  } catch { /* null below */ }
+  return null;
+}
+
 // India pincode -> lat/lng + address via PostalPincode.in + Nominatim postalcode fallback
 // Uses: Nominatim postalcode search (preferred free, no key) + https://api.postalpincode.in fallback for district/state names
 export async function searchByPincode(pincode, limit = 5) {
@@ -229,6 +291,85 @@ export async function searchByPincode(pincode, limit = 5) {
 
 // Service availability radius (km) — executive presence check
 export const SERVICE_RADIUS_KM = 50;
+
+// --- Live-tracker coordinate separation ---------------------------------
+// Partner position and customer destination must NEVER come from the same
+// object. Canonical fields: booking.customerCoords (destination) and
+// booking.providerCoords (partner's own coords, null until assigned).
+const isFiniteCoord = (c) =>
+  !!c && Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng));
+
+// Haversine destination point: coords at a bearing + distance from origin.
+export function destinationPoint(lat, lng, bearingDeg, distanceKm) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const br = toRad(bearingDeg);
+  const lat1 = toRad(lat), lon1 = toRad(lng);
+  const d = distanceKm / R;
+  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(br));
+  const lon2 = lon1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
+  return { lat: toDeg(lat2), lng: toDeg(lon2) };
+}
+
+function hashStr32(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+// Deterministic demo partner position: nearby but NEVER identical to the
+// customer. Stable per booking (same bookingId → same coords, no per-render
+// randomness). Used ONLY when no live/assigned partner position exists.
+export function demoPartnerLocationForBooking(bookingId, customerCoords) {
+  if (!isFiniteCoord(customerCoords)) return null;
+  const h = hashStr32(String(bookingId || 'demo'));
+  const bearing = h % 360;
+  const distKm = 3.5 + ((h >>> 8) % 26) / 10; // 3.5 – 6.0 km
+  const p = destinationPoint(Number(customerCoords.lat), Number(customerCoords.lng), bearing, distKm);
+  return { lat: Math.round(p.lat * 10000) / 10000, lng: Math.round(p.lng * 10000) / 10000 };
+}
+
+// Nearest dataset partner to a location (demo fallback only — distance-only,
+// no qualification gate). Returns { provider, distanceKm } or null.
+export function nearestProviderToLocation(providers = [], loc) {
+  if (!isFiniteCoord(loc)) return null;
+  let best = null;
+  for (const p of providers || []) {
+    if (!isFiniteCoord(p?.coords)) continue;
+    const d = haversineKm(Number(loc.lat), Number(loc.lng), Number(p.coords.lat), Number(p.coords.lng));
+    if (!Number.isFinite(d)) continue;
+    if (!best || d < best.distanceKm) best = { provider: p, distanceKm: d };
+  }
+  return best;
+}
+
+// Single tracker-position resolver (one implementation; UI + tests share it).
+// Priority: live GPS > assigned provider coords > deterministic demo > null.
+// Returns finite numbers or nulls — never NaN/undefined/Infinity.
+export function resolveTrackerPositions({ customerCoords = null, liveCoords = null, assignedCoords = null, bookingId = null } = {}) {
+  const customer = isFiniteCoord(customerCoords)
+    ? { lat: Number(customerCoords.lat), lng: Number(customerCoords.lng) } : null;
+  if (!customer) return { customerCoords: null, providerCoords: null, distanceKm: null, eta: null, partnerSource: null };
+  let provider = null;
+  let partnerSource = null;
+  if (isFiniteCoord(liveCoords)) {
+    provider = { lat: Number(liveCoords.lat), lng: Number(liveCoords.lng) };
+    partnerSource = 'live';
+  } else if (isFiniteCoord(assignedCoords)) {
+    provider = { lat: Number(assignedCoords.lat), lng: Number(assignedCoords.lng) };
+    partnerSource = 'assigned';
+  } else {
+    const demo = demoPartnerLocationForBooking(bookingId, customer);
+    if (demo) { provider = demo; partnerSource = 'demo'; }
+  }
+  if (!provider) return { customerCoords: customer, providerCoords: null, distanceKm: null, eta: null, partnerSource: null };
+  const distanceKm = haversineKm(provider.lat, provider.lng, customer.lat, customer.lng);
+  if (!Number.isFinite(distanceKm)) {
+    return { customerCoords: customer, providerCoords: null, distanceKm: null, eta: null, partnerSource: null };
+  }
+  return { customerCoords: customer, providerCoords: provider, distanceKm, eta: calcETA(distanceKm), partnerSource };
+}
 
 export function isWithinServiceRadius(userLat, userLng, providerLat, providerLng, radiusKm = SERVICE_RADIUS_KM) {
   if ([userLat, userLng, providerLat, providerLng].some(v => v == null || isNaN(v))) return false;

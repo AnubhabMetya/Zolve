@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import MapView from '../common/MapView';
-import { haversineKm, calcETA, interpolatePosition } from '../../services/locationService';
+import { ProfessionalStatusPanel } from './AssignedProfessionalCard';
+import { interpolatePosition, resolveCoordsFromText, resolveTrackerPositions, demoPartnerLocationForBooking, nearestProviderToLocation } from '../../services/locationService';
+import { allocatePartnerForBooking } from '../../services/internalAllocationService.js';
 import { subscribeBookingLocation, publishLocation, isRealtimeEnabled } from '../../services/realtimeService';
 import {
   X,
   CheckCircle2,
   Clock,
   MapPin,
-  Phone,
   MessageSquare,
-  ShieldCheck,
   Send,
   AlertTriangle,
   RotateCcw,
@@ -45,7 +45,10 @@ export const LiveBookingTracker = () => {
     setAuthModalTab,
     addNotification,
     providerLiveLocations,
-    updateProviderLiveLocation
+    updateProviderLiveLocation,
+    providers,
+    bookings,
+    assignBookingProvider
   } = useApp();
 
   const handleDisputeClick = () => {
@@ -64,6 +67,7 @@ export const LiveBookingTracker = () => {
 
   const [chatInput, setChatInput] = useState('');
   const [livePos, setLivePos] = useState(null);
+  const [advancing, setAdvancing] = useState(false);
   const mockIntervalRef = useRef(null);
 
   // Subscribe to realtime location + mock interpolation fallback
@@ -71,9 +75,12 @@ export const LiveBookingTracker = () => {
     if (!activeBookingForTracking) return;
     const booking = activeBookingForTracking;
     const bookingId = booking.id;
-    // init from context or booking coords
-    const seed = providerLiveLocations[bookingId] || booking.providerCoords || { lat: 12.9279, lng: 77.6271 };
-    const cust = booking.customerCoords || { lat: 12.9784, lng: 77.6408 };
+    // Partner seed: live GPS > assigned provider coords > deterministic demo
+    // near the customer — NEVER the customer coords themselves (that fakes
+    // 0.00 km). Demo seed is stable per booking (no per-render randomness).
+    const cust = booking.customerCoords || null;
+    const seed = providerLiveLocations[bookingId] || booking.providerCoords
+      || demoPartnerLocationForBooking(bookingId, cust) || null;
     setLivePos(seed);
 
     const sub = subscribeBookingLocation(bookingId, (coords) => {
@@ -88,7 +95,8 @@ export const LiveBookingTracker = () => {
     window.addEventListener('zolve:live-location', onLocal);
 
     // Mock motion when no real provider sharing: interpolate 5% every 3s toward customer
-    if (booking.bookingStatus === 'PROVIDER_ON_THE_WAY') {
+    // (only when both ends are known — never fabricate a route from null).
+    if (booking.bookingStatus === 'PROVIDER_ON_THE_WAY' && seed && cust) {
       mockIntervalRef.current = setInterval(() => {
         setLivePos((prev) => {
           const cur = prev || seed;
@@ -113,10 +121,18 @@ export const LiveBookingTracker = () => {
 
   if (!activeBookingForTracking) return null;
   const b = activeBookingForTracking;
-  const customerCoords = b.customerCoords || { lat: 12.9784, lng: 77.6408 };
-  const providerCoords = livePos || b.providerCoords || { lat: 12.9279, lng: 77.6271 };
-  const distanceKm = haversineKm(providerCoords.lat, providerCoords.lng, customerCoords.lat, customerCoords.lng);
-  const eta = calcETA(distanceKm);
+  // Separated sources, one resolver: destination vs partner position can
+  // never be the same object, so distance is never a fake customer→customer 0.
+  const tracking = resolveTrackerPositions({
+    customerCoords: b.customerCoords,
+    liveCoords: livePos,
+    assignedCoords: b.providerCoords,
+    bookingId: b.id,
+  });
+  const customerCoords = tracking.customerCoords;
+  const providerCoords = tracking.providerCoords;
+  const distanceKm = tracking.distanceKm;
+  const eta = tracking.eta;
 
   // Compute current stage index
   const getStageIndex = (status) => {
@@ -134,6 +150,19 @@ export const LiveBookingTracker = () => {
 
   const currentStageIdx = getStageIndex(b.bookingStatus);
 
+  // Assigned professional resolution — booking is the source of truth.
+  // Full record (rating/jobs/experience/skills) resolved from the provider
+  // registry; booking-embedded fields are the fallback. Nothing is fabricated.
+  const assignedProvider = (providers || []).find((p) => p && b.providerId && p.id === b.providerId) || null;
+
+  const focusChat = () => {
+    const input = document.getElementById('tracker-chat-input');
+    if (input) {
+      input.focus({ preventScroll: false });
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -141,21 +170,94 @@ export const LiveBookingTracker = () => {
     setChatInput('');
   };
 
-  // Quick Simulation Status Advancer for Demo testing
-  const handleAdvanceStatus = () => {
-    if (b.bookingStatus === 'CONFIRMED' || b.bookingStatus === 'PROVIDER_ASSIGNED') {
-      updateBookingStatus(b.id, 'PROVIDER_ACCEPTED');
-      activeBookingForTracking.bookingStatus = 'PROVIDER_ACCEPTED';
-    } else if (b.bookingStatus === 'PROVIDER_ACCEPTED') {
-      updateBookingStatus(b.id, 'PROVIDER_ON_THE_WAY');
-      activeBookingForTracking.bookingStatus = 'PROVIDER_ON_THE_WAY';
-    } else if (b.bookingStatus === 'PROVIDER_ON_THE_WAY') {
-      updateBookingStatus(b.id, 'SERVICE_STARTED');
-      activeBookingForTracking.bookingStatus = 'SERVICE_STARTED';
-    } else if (b.bookingStatus === 'SERVICE_STARTED') {
-      updateBookingStatus(b.id, 'SERVICE_COMPLETED');
-      activeBookingForTracking.bookingStatus = 'SERVICE_COMPLETED';
+  // Demo Simulation Status Advancer. This is a REAL state transition, not a
+  // visual stage flip: reaching PROVIDER_ACCEPTED without a partner is an
+  // impossible state, so assignment happens here through the same pipeline
+  // as dispatch (existing provider dataset, 50km rule, name snapshot).
+  // Demo fallback: if strict dispatch finds nobody (e.g. unmapped service
+  // name), the nearest dataset partner to the customer is assigned so the
+  // demo always progresses with a REAL record — never a fake name, never
+  // a stuck button. Timeline + top panel both read the same booking after.
+  const handleAdvanceStatus = async () => {
+    if (advancing) return;
+    const next = b.bookingStatus === 'CONFIRMED' || b.bookingStatus === 'PROVIDER_ASSIGNED' ? 'PROVIDER_ACCEPTED'
+      : b.bookingStatus === 'PROVIDER_ACCEPTED' ? 'PROVIDER_ON_THE_WAY'
+      : b.bookingStatus === 'PROVIDER_ON_THE_WAY' ? 'SERVICE_STARTED'
+      : b.bookingStatus === 'SERVICE_STARTED' ? 'SERVICE_COMPLETED' : null;
+    if (!next) return;
+    let identityPatch = {};
+    if (next === 'PROVIDER_ACCEPTED' && !b.providerId && !b.providerName) {
+      setAdvancing(true);
+      try {
+        const loc = (b.customerCoords && Number.isFinite(b.customerCoords.lat) && Number.isFinite(b.customerCoords.lng))
+          ? { lat: b.customerCoords.lat, lng: b.customerCoords.lng }
+          : await resolveCoordsFromText(b.address || '');
+        let assigned = null;
+        let assignmentSource = 'strict';
+        if (loc) {
+          try {
+            ({ assigned } = allocatePartnerForBooking({
+              providers, bookings,
+              customerLocation: loc,
+              requestedService: { name: b.serviceName },
+              requestedDate: b.scheduledDate, requestedTime: b.scheduledTime,
+            }));
+          } catch { assigned = null; }
+        }
+        if (!assigned && loc) {
+          // Demo fallback: nearest real partner to the customer (same city
+          // first by construction). Full dataset record, full profile.
+          const best = nearestProviderToLocation(providers, loc);
+          if (best) { assigned = best.provider; assignmentSource = 'nearest-fallback'; }
+        }
+        if (!assigned) throw new Error('no_eligible_partner');
+        const updated = await assignBookingProvider(b.id, assigned);
+        identityPatch = {
+          providerId: assigned.id,
+          providerName: assigned.name,
+          providerAvatar: assigned.avatar,
+          providerPhone: assigned.phone,
+          providerTitle: assigned.title,
+          isCoopMember: !!assigned.isCoopMember,
+          providerCoords: assigned.coords || null,
+          providerRating: assigned.rating ?? null,
+          providerRatingCount: assigned.ratingCount ?? null,
+          providerJobsCompleted: assigned.completedJobs ?? assigned.jobsCompleted ?? null,
+          providerExperienceYears: assigned.experienceYears ?? assigned.experience ?? null,
+          providerSkills: Array.isArray(assigned.skills) ? assigned.skills.slice(0, 4) : null,
+          ...(updated && updated.bookingStatus ? { bookingStatus: updated.bookingStatus } : {}),
+        };
+        console.log('[tracker] stage transition with assignment', {
+          bookingStatus: next,
+          providerId: assigned.id,
+          providerName: assigned.name,
+          assignmentSource,
+        });
+      } catch (e) {
+        console.warn('ASSIGNMENT DATA MISSING', {
+          bookingStatus: next,
+          providerId: null,
+          providerName: null,
+          reason: e?.message || e,
+        });
+        addNotification({
+          title: 'Assignment failed',
+          message: 'No partner record available for this booking yet. Status unchanged.',
+          type: 'system',
+        });
+        return;
+      } finally {
+        setAdvancing(false);
+      }
+    } else {
+      console.log('[tracker] stage transition', {
+        bookingStatus: next,
+        providerId: b.providerId ?? null,
+        providerName: b.providerName ?? null,
+      });
     }
+    updateBookingStatus(b.id, next);
+    setActiveBookingForTracking({ ...b, ...identityPatch, bookingStatus: next });
   };
 
   return (
@@ -192,38 +294,13 @@ export const LiveBookingTracker = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 overflow-y-auto">
           {/* Left Column (7 cols): Visual Timeline & Provider Card */}
           <div className="lg:col-span-7 p-6 sm:p-8 space-y-6 border-b lg:border-b-0 lg:border-r border-slate-200">
-            {/* Provider Snapshot Card */}
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
-                <img
-                  src={b.providerAvatar}
-                  alt={b.providerName}
-                  className="w-14 h-14 rounded-2xl object-cover ring-2 ring-coop-500/30"
-                />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <h4 className="text-sm font-bold text-slate-900">{b.providerName}</h4>
-                    {b.isCoopMember && (
-                      <span className="px-2 py-0.5 rounded-md bg-coop-50 text-coop-700 text-[10px] font-bold border border-coop-200">
-                        Co-op Member
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">{b.providerTitle}</p>
-                  <div className="text-[11px] text-coop-700 font-semibold flex items-center gap-1 mt-1">
-                    <Phone className="w-3 h-3" /> {b.providerPhone}
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-right shrink-0">
-                <div className="text-[10px] text-slate-400 font-bold uppercase">Paid via Razorpay</div>
-                <div className="text-base font-extrabold text-slate-900">₹{b.totalAmount}</div>
-                <span className="inline-flex items-center gap-1 text-[10px] text-coop-700 font-semibold">
-                  <ShieldCheck className="w-3 h-3" /> Captured
-                </span>
-              </div>
-            </div>
+            {/* Professional panel — privacy before assignment, full card after */}
+            <ProfessionalStatusPanel
+              booking={b}
+              provider={assignedProvider}
+              onMessage={focusChat}
+              totalAmount={b.totalAmount}
+            />
 
             {/* VISUAL 5-STAGE PROGRESSION TIMELINE */}
             <div className="space-y-4">
@@ -231,9 +308,14 @@ export const LiveBookingTracker = () => {
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                   Service Progress Timeline
                 </h4>
-                {b.bookingStatus === 'PROVIDER_ON_THE_WAY' && (
+                {b.bookingStatus === 'PROVIDER_ON_THE_WAY' && distanceKm != null && (
                   <span className="text-[11px] text-amber-700 font-bold bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
                     ETA: {eta} • {distanceKm.toFixed(2)} km
+                  </span>
+                )}
+                {b.bookingStatus === 'PROVIDER_ON_THE_WAY' && distanceKm == null && (
+                  <span className="text-[11px] text-slate-500 font-bold bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                    Waiting for live location...
                   </span>
                 )}
               </div>
@@ -242,7 +324,9 @@ export const LiveBookingTracker = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-coop-700 uppercase flex items-center gap-1"><MapPin className="w-3 h-3" /> Live Tracking {isRealtimeEnabled() ? '(Supabase)' : '(Local mock)'}</span>
-                    <span className="text-[10px] text-slate-500">{providerCoords.lat.toFixed(4)}, {providerCoords.lng.toFixed(4)} → {customerCoords.lat.toFixed(4)}, {customerCoords.lng.toFixed(4)}</span>
+                    {providerCoords && customerCoords && (
+                      <span className="text-[10px] text-slate-500">{providerCoords.lat.toFixed(4)}, {providerCoords.lng.toFixed(4)} → {customerCoords.lat.toFixed(4)}, {customerCoords.lng.toFixed(4)}</span>
+                    )}
                   </div>
                   <MapView providerPos={providerCoords} customerPos={customerCoords} height="260px" />
                   <p className="text-[10px] text-slate-400">Provider marker moves every 3s (mock) or live via GPS when provider shares. Route is straight-line; OSRM routing can replace polyline.</p>
@@ -308,10 +392,10 @@ export const LiveBookingTracker = () => {
               </div>
               <button
                 onClick={handleAdvanceStatus}
-                disabled={b.bookingStatus === 'SERVICE_COMPLETED'}
+                disabled={b.bookingStatus === 'SERVICE_COMPLETED' || advancing}
                 className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-50 transition-colors shadow-sm"
               >
-                {b.bookingStatus === 'SERVICE_COMPLETED' ? "Job Completed ✓" : "Advance Next Stage →"}
+                {b.bookingStatus === 'SERVICE_COMPLETED' ? "Job Completed ✓" : advancing ? "Assigning…" : "Advance Next Stage →"}
               </button>
             </div>
           </div>
@@ -365,7 +449,7 @@ export const LiveBookingTracker = () => {
                   })
                 ) : (
                   <div className="text-center text-slate-400 text-xs py-10">
-                    No messages yet. Send a message to {b.providerName.split(' ')[0]}.
+                    No messages yet. Send a message to {(b.providerName || 'your professional').split(' ')[0]}.
                   </div>
                 )}
               </div>
@@ -373,6 +457,7 @@ export const LiveBookingTracker = () => {
               {/* Chat Input Form */}
               <form onSubmit={handleSendMessage} className="mt-2 flex items-center gap-2">
                 <input
+                  id="tracker-chat-input"
                   type="text"
                   placeholder="Type message to provider..."
                   value={chatInput}

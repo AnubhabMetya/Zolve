@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { findCategoryForServiceName } from '../../data/serviceCatalog.js';
 import {
   Sparkles,
   X,
@@ -15,7 +17,8 @@ import {
 import { getAICopilotResponse, classifyServiceQuery } from '../../services/aiEngine';
 
 export const AICopilotDrawer = () => {
-  const { isCopilotOpen, setIsCopilotOpen, currentUser, setSelectedProviderForBooking, providers } = useApp();
+  const { isCopilotOpen, setIsCopilotOpen, currentUser } = useApp();
+  const navigate = useNavigate();
 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([
@@ -129,13 +132,13 @@ export const AICopilotDrawer = () => {
                         <p className="text-[10px] text-slate-500">{m.classification.explanation}</p>
                         <button
                           onClick={() => {
-                            const topProvider = providers.find(p => p.serviceCategories?.some(c => c.includes(m.classification.subcategory))) || providers[0];
-                            setSelectedProviderForBooking(topProvider);
+                            const cat = findCategoryForServiceName(m.classification.serviceName || '');
+                            navigate(cat ? `/services/${cat.id}` : '/search');
                             setIsCopilotOpen(false);
                           }}
                           className="w-full py-1.5 rounded-lg bg-brand-900 text-white text-[11px] font-bold flex items-center justify-center gap-1 mt-1 hover:bg-brand-800"
                         >
-                          <span>Book Top Matched Provider</span>
+                          <span>View Services</span>
                           <ArrowRight className="w-3 h-3" />
                         </button>
                       </div>

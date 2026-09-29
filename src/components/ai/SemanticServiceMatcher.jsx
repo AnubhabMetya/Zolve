@@ -1,45 +1,35 @@
 import React, { useState, useCallback } from 'react';
-import { Search, Sparkles, ShieldCheck, Award, Star, MapPin, Clock, ArrowRight, AlertCircle, CheckCircle2, Brain, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Sparkles, Clock, AlertCircle, CheckCircle2, Brain, Zap } from 'lucide-react';
 import { semanticMatch, rebuildProviderEmbeddings } from '../../services/semanticService';
-import { fairMatchRank } from '../../services/fairMatchService';
-import { FairMatchRecommendation } from './FairMatchRecommendation';
+import { findCategoryForServiceName } from '../../data/serviceCatalog.js';
 import { useApp } from '../../context/AppContext';
 
 export const SemanticServiceMatcher = ({ compact = false, onSelectServiceName }) => {
-  const { providers, setSelectedProviderForBooking, selectedLocation, bookings, savedAddresses } = useApp();
+  const { providers, selectedLocation, savedAddresses } = useApp();
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // FairMatch: rank semantic candidates (Feature 2) — uses real bookings + location, no new tables
+  // Geo-filter semantic retrieval to 50km local providers (city hard filter).
+  // Provider identities are used ONLY for matching signal — never displayed.
   const customerLocation = React.useMemo(() => {
     if (selectedLocation && typeof selectedLocation !== 'string' && selectedLocation.lat != null) return selectedLocation;
     const def = savedAddresses?.find(a => a.isDefault) || savedAddresses?.[0];
     return def?.coords || null;
   }, [selectedLocation, savedAddresses]);
 
-  const fairMatchResult = React.useMemo(() => {
-    if (!result || result.isLowConfidence || !result.topProviders?.length) return null;
-    const candidates = result.topProviders.map(tp => ({
-      provider: tp.provider,
-      semanticScore: tp.rawScore != null ? tp.rawScore : (tp.confidence != null ? tp.confidence / 100 : tp.score),
-      score: tp.rawScore != null ? tp.rawScore : tp.score,
-    }));
-    try {
-      return fairMatchRank({
-        candidates,
-        customerLocation,
-        requestedService: result.detectedService,
-        requestedDate: null,
-        requestedTime: null,
-        allBookings: bookings || [],
-      });
-    } catch (e) {
-      console.warn('[FairMatch] rank failed', e);
-      return null;
+  // After the customer confirms an AI suggestion → normal service catalog.
+  const handleViewServices = (serviceName) => {
+    if (onSelectServiceName) {
+      onSelectServiceName(serviceName);
+      return;
     }
-  }, [result, customerLocation, bookings]);
+    const cat = findCategoryForServiceName(serviceName);
+    if (cat) navigate(`/services/${cat.id}`);
+  };
 
   // Keep provider embeddings in sync when Supabase providers update
   React.useEffect(() => {
@@ -67,10 +57,6 @@ export const SemanticServiceMatcher = ({ compact = false, onSelectServiceName })
       e.preventDefault();
       handleSearch();
     }
-  };
-
-  const handleProviderBook = (provider) => {
-    setSelectedProviderForBooking(provider);
   };
 
   const showLow = result?.isLowConfidence;
@@ -166,10 +152,9 @@ export const SemanticServiceMatcher = ({ compact = false, onSelectServiceName })
               <p className="text-xs text-slate-600 leading-relaxed">{result.detectedService.description}</p>
               <div className="flex items-center gap-2 text-[11px] text-slate-500">
                 <span className="px-2 py-1 rounded-full bg-white border border-slate-200 font-semibold">Starts from ₹{result.detectedService.basePrice}</span>
-                {onSelectServiceName && (
-                  <button onClick={() => onSelectServiceName(result.detectedService.name)} className="px-3 py-1 rounded-full bg-brand-900 text-white font-bold hover:bg-brand-800">View in search →</button>
-                )}
+                <button onClick={() => handleViewServices(result.detectedService.name)} className="px-3 py-1 rounded-full bg-brand-900 text-white font-bold hover:bg-brand-800">View services →</button>
               </div>
+              <p className="text-[11px] text-slate-500">Zolve assigns the best qualified partner after booking — no need to choose.</p>
             </div>
           )}
 
@@ -201,74 +186,14 @@ export const SemanticServiceMatcher = ({ compact = false, onSelectServiceName })
             </div>
           )}
 
-          {/* Local candidate count — 5-10 requirement, never padded with distant */}
+          {/* Internal coverage note — never exposes the partner candidate pool */}
           {hasSearched && result && !showLow && result.topProviders.length === 0 && (
             <div className="p-3 rounded-2xl border border-red-200 bg-red-50 flex items-center gap-2 text-xs text-red-800">
               <AlertCircle className="w-4 h-4" />
-              <span>No qualified local executives within 50km for this service — all distant providers excluded. Try another city or service.</span>
+              <span>Services not available in this area. Try another city or service.</span>
             </div>
           )}
-          {fairMatchResult && !showLow && result.topProviders.length > 0 && (
-            <div className={`p-3 rounded-2xl border flex items-center gap-2 text-xs ${fairMatchResult.rankedCandidates.length === 0 ? 'bg-red-50 border-red-200 text-red-800' : fairMatchResult.rankedCandidates.length < 5 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
-              {fairMatchResult.rankedCandidates.length === 0 ? (
-                <><AlertCircle className="w-4 h-4" /><span>No qualified local executives within 50km for this service — try another city or service.</span></>
-              ) : fairMatchResult.rankedCandidates.length < 5 ? (
-                <><MapPin className="w-4 h-4" /><span>Only {fairMatchResult.rankedCandidates.length} qualified executives are currently available nearby — within 50km of your location. Correctness over quantity.</span></>
-              ) : (
-                <><CheckCircle2 className="w-4 h-4" /><span>{fairMatchResult.rankedCandidates.length} qualified local executives available within 50km — showing top {Math.min(10, fairMatchResult.rankedCandidates.length)} best LOCAL providers (distant cities excluded).</span></>
-              )}
-            </div>
-          )}
-
-          {/* FairMatch Recommendation — Feature 2 (candidate providers → FairMatch → ranked) */}
-          {fairMatchResult && fairMatchResult.recommendedProvider && !showLow && (
-            <FairMatchRecommendation
-              rankedResult={fairMatchResult}
-              onBook={handleProviderBook}
-            />
-          )}
-
-          {/* Top matching providers (semantic candidates — input to FairMatch) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-800">Top matching providers</div>
-              <span className="text-[11px] text-slate-400">Semantic Match Score • input to FairMatch</span>
-            </div>
-            {result.topProviders && result.topProviders.length > 0 ? (
-              <div className="space-y-2.5">
-                {result.topProviders.slice(0,3).map(({ provider, confidence }) => (
-                  <div key={provider.id} className="p-3 rounded-2xl border border-slate-200 hover:border-brand-200 bg-white flex items-center justify-between gap-3 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200 flex items-center justify-center shrink-0">
-                        <ShieldCheck className="w-5 h-5 text-coop-600" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5">
-                          Verified Executive <span className="text-slate-400 font-normal">• {provider.id.slice(-4).toUpperCase()}</span>
-                          {provider.isCoopMember && <span className="px-1.5 py-0.5 rounded-full bg-coop-50 text-coop-700 text-[9px] font-extrabold border border-coop-200 flex items-center gap-0.5"><Award className="w-3 h-3" /> Co-op</span>}
-                        </div>
-                        <div className="text-[11px] text-slate-600 truncate">{provider.title}</div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                          <span className="flex items-center gap-1 font-bold text-amber-600"><Star className="w-3 h-3 fill-amber-500 text-amber-500" />{provider.rating}</span>
-                          <span>• {provider.completedJobs} jobs</span>
-                          <span className="hidden sm:inline flex items-center gap-1"><MapPin className="w-3 h-3" />{provider.location?.split('(')[0]?.trim()}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-black border ${confidence >= 70 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : confidence >= 40 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>{confidence}% Semantic Match Score</span>
-                      <button onClick={() => handleProviderBook(provider)} className="px-3 py-1.5 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-[11px] font-bold flex items-center gap-1">
-                        Book <ArrowRight className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">No providers matched. Try a different description.</p>
-            )}
-            <p className="text-[11px] text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> Provider embeddings are precomputed once and reused — no key exposed. Falls back to keyword search if semantic unavailable.</p>
-          </div>
+          <p className="text-[11px] text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> Describe your problem in your own words — AI matches it to the right service catalog.</p>
         </div>
       )}
 

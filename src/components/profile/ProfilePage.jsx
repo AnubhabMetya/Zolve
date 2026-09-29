@@ -61,6 +61,8 @@ function AddressFormModal({ open, onClose, onSave, initial, gpsBusy }) {
   const [search, setSearch] = useState('')
   const [searching, setSearching] = useState(false)
   const [results, setResults] = useState([])
+  const [searchFailed, setSearchFailed] = useState(false)
+  const [searchAttempt, setSearchAttempt] = useState(0)
   const [pincodeInput, setPincodeInput] = useState(initial?.pincode || '')
   const [pinLoading, setPinLoading] = useState(false)
   const [pinError, setPinError] = useState('')
@@ -85,19 +87,22 @@ function AddressFormModal({ open, onClose, onSave, initial, gpsBusy }) {
     const q=search.trim()
     if(!open) return
     if(debounceRef.current) clearTimeout(debounceRef.current)
-    if(q.length<3){ setResults([]); setSearching(false); return }
+    if(q.length<3){ setResults([]); setSearching(false); setSearchFailed(false); return }
     setSearching(true)
+    setSearchFailed(false)
     debounceRef.current=setTimeout(async()=>{
       const cur=++searchIdRef.current
       try{
         const r=await searchPlaces(q,6)
         if(cur!==searchIdRef.current) return
-        setResults(r)
-      }catch{ if(cur===searchIdRef.current) setResults([]) }
+        // Never store undefined — runtime .map() crash guard
+        setResults(Array.isArray(r) ? r : [])
+        setSearchFailed(false)
+      }catch{ if(cur===searchIdRef.current){ setResults([]); setSearchFailed(true) } }
       finally{ if(cur===searchIdRef.current) setSearching(false)}
     },400)
     return()=>clearTimeout(debounceRef.current)
-  },[search,open])
+  },[search,open,searchAttempt])
 
   if(!open) return null
 
@@ -135,8 +140,9 @@ function AddressFormModal({ open, onClose, onSave, initial, gpsBusy }) {
   }
 
   const handlePickResult = (r)=>{
+    if (!r || r.lat == null || r.lng == null) return
     setMapCoords({ lat:r.lat, lng:r.lng })
-    const parts = r.name.split(',').map(s=>s.trim())
+    const parts = String(r.name || '').split(',').map(s=>s.trim()).filter(Boolean)
     // naive split to prefill
     setForm(prev=> ({
       ...prev,
@@ -160,7 +166,8 @@ function AddressFormModal({ open, onClose, onSave, initial, gpsBusy }) {
     setPinLoading(true); setPinError('')
     try{
       const res=await searchByPincode(pin,1)
-      const best=res[0]
+      const best=Array.isArray(res)?res[0]:null
+      if(!best||best.lat==null||best.lng==null) throw new Error('No location found for this pincode')
       setMapCoords({ lat:best.lat, lng:best.lng })
       setForm(prev=> ({ ...prev, pincode:pin, city: best.district || prev.city, state: best.state || prev.state, streetArea: prev.streetArea || best.short?.split(',').slice(0,2).join(', ') || '', coords:{ lat:best.lat, lng:best.lng } }))
       // also reverse to get precise locality
@@ -223,14 +230,23 @@ function AddressFormModal({ open, onClose, onSave, initial, gpsBusy }) {
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any address in India — e.g. Dadar Mumbai, MG Road Bangalore..." className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
             <div className="absolute right-3 top-2.5">{searching && <Loader2 className="w-4 h-4 animate-spin text-brand-600" />}</div>
-            {results.length>0 && (
+            {searchFailed && (
+              <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 flex items-center justify-between gap-2">
+                <span className="text-xs text-red-700 font-semibold">Unable to find locations</span>
+                <button onClick={()=>setSearchAttempt(n=>n+1)} className="px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-700 text-[11px] font-bold">Try Again</button>
+              </div>
+            )}
+            {!searching && !searchFailed && search.trim().length>=3 && (results||[]).length===0 && (
+              <p className="text-[11px] text-slate-500 mt-1">No matching locations found. Try a nearby landmark or pincode.</p>
+            )}
+            {(results||[]).length>0 && (
               <div className="absolute z-10 mt-2 w-full rounded-xl border border-slate-200 bg-white shadow-xl max-h-56 overflow-auto">
-                {results.map(r=>(
-                  <button key={`${r.lat}-${r.lng}-${r.name}`} onClick={()=>handlePickResult(r)} className="w-full text-left px-3 py-2.5 hover:bg-brand-50 flex gap-2 border-b last:border-0 border-slate-100">
+                {(results||[]).map(r=>(
+                  <button key={`${r?.lat}-${r?.lng}-${r?.name}`} onClick={()=>handlePickResult(r)} className="w-full text-left px-3 py-2.5 hover:bg-brand-50 flex gap-2 border-b last:border-0 border-slate-100">
                     <MapPin className="w-4 h-4 text-brand-600 shrink-0 mt-0.5" />
                     <div className="min-w-0">
-                      <div className="text-xs font-bold truncate">{r.short}</div>
-                      <div className="text-[11px] text-slate-500 truncate">{r.name}</div>
+                      <div className="text-xs font-bold truncate">{r?.short || 'Unnamed location'}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{r?.name || ''}</div>
                     </div>
                   </button>
                 ))}
@@ -371,7 +387,7 @@ export const ProfilePage = () => {
   }
 
   const visible = getVisibleBookings(bookings, currentUser);
-  const addresses = savedAddresses || currentUser.savedAddresses || [];
+  const addresses = savedAddresses || currentUser?.savedAddresses || [];
   const primaryAddress = addresses.find(a=>a.isDefault)?.fullAddress || addresses.find(a=>a.isDefault)?.addressLine || addresses[0]?.fullAddress || addresses[0]?.addressLine || currentUser.location || 'No address on file';
 
   const handleYourOrders = () => setActiveSection('orders');

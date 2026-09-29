@@ -15,6 +15,12 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 
 import { ServiceSearch } from './components/customer/ServiceSearch';
+import { VerifyPanels } from './components/customer/__VerifyPanels';
+import { ServiceDetailPage } from './components/customer/ServiceDetailPage';
+import { CartPage } from './components/customer/CartPage';
+import { CheckoutFlow } from './components/customer/CheckoutFlow';
+import { MatchingStatusPage } from './components/customer/MatchingStatusPage';
+import { findCategoryForServiceName } from './data/serviceCatalog.js';
 import { ProviderProfileModal } from './components/customer/ProviderProfileModal';
 import { BookingModal } from './components/customer/BookingModal';
 import { LiveBookingTracker } from './components/customer/LiveBookingTracker';
@@ -82,6 +88,14 @@ export function AppContent() {
   const [searchParam, setSearchParam] = useState('');
 
   const handleOpenSearchWithCategory = (catName) => {
+    // DIRECT SERVICE CLICK → catalog page, NO Semantic AI.
+    // Only unmatched natural-language queries fall through to /search discovery.
+    const catalogMatch = findCategoryForServiceName(catName);
+    if (catalogMatch) {
+      setActiveTab('search');
+      navigate(`/services/${catalogMatch.id}`);
+      return;
+    }
     setSearchParam(catName);
     setActiveTab('search');
     if (location.pathname !== '/search') navigate('/search');
@@ -152,6 +166,11 @@ export function AppContent() {
           <Route path="/partner" element={<div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950"><ExecutiveDashboard /></div>} />
           <Route path="/executive" element={<Navigate to="/partner" replace />} />
           <Route path="/search" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><div className="mb-4 flex items-center gap-2 text-xs text-slate-500"><button onClick={()=>navigate('/')} className="hover:underline">← Back to Home</button><span>•</span><span>Explore Services</span></div><ServiceSearch initialSearch={searchParam} /></div>} />
+          <Route path="/services/:categoryId" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><ServiceDetailPage /></div>} />
+          <Route path="/cart" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><CartPage /></div>} />
+          <Route path="/checkout" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><CheckoutFlow /></div>} />
+          <Route path="/booking/:id/matching" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><MatchingStatusPage /></div>} />
+          <Route path="/__verify" element={<div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8"><VerifyPanels /></div>} />
           <Route path="/bookings" element={<ProtectedRoute><div className="space-y-6 pb-16"><div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-subtle flex items-center justify-between"><div><h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-display">My Bookings ({visibleBookings.length})</h1><p className="text-xs text-slate-500 mt-1">Track real-time provider arrival, chat with technicians, and review completed services.</p></div></div><div className="space-y-4">{!currentUser ? <div className="p-8 rounded-3xl bg-white border text-center"><p className="text-sm font-bold">Sign in to view your bookings</p><button onClick={()=>navigate('/login')} className="mt-3 px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Sign In</button></div> : visibleBookings.length===0 ? <div className="p-8 rounded-3xl bg-white border text-center text-sm text-slate-500">No bookings found.</div> : visibleBookings.map((b)=>(<div key={b.id} className="p-6 rounded-3xl bg-white border border-slate-200/90 shadow-subtle flex flex-col md:flex-row items-start md:items-center justify-between gap-6"><div className="flex items-start gap-4"><img src={b.providerAvatar} alt={b.providerName} className="w-16 h-16 rounded-2xl object-cover" /><div><span className="px-2.5 py-0.5 rounded-full bg-brand-50 text-brand-700 font-bold text-xs">#{b.bookingCode}</span><h3 className="text-base font-bold text-slate-900">{b.serviceName}</h3><p className="text-xs text-slate-500">Provider: <strong className="text-slate-800">{b.providerName}</strong></p></div></div><button onClick={()=>setActiveBookingForTracking(b)} className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold">Track & Details</button></div>))}</div></div></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/payments" element={<ProtectedRoute><CustomerPaymentHistory /></ProtectedRoute>} />

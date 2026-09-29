@@ -5,12 +5,10 @@ import {
   Search,
   Sparkles,
   MapPin,
-  ShieldCheck,
   Star,
   Clock,
   ArrowRight,
   CheckCircle2,
-  Calendar,
   AlertCircle,
   Award,
   Zap,
@@ -51,10 +49,8 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
     setIsLocationModalOpen,
     serviceCategories,
     providers,
-    bookings,
     setSelectedProviderForBooking,
     setSelectedProviderForProfile,
-    setActiveBookingForTracking,
     setActiveTab,
     setIsCopilotOpen,
     setIsAuthModalOpen,
@@ -108,64 +104,18 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
     { id: 'srv-laundry', name: 'House Pickup Laundry Services', image: 'https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=600&auto=format&fit=crop&q=80', rating: null, count: null, price: null, badge: 'Coming Soon' },
   ];
 
+  // SERVICE-FIRST: customer picks WHAT they need → catalog page.
+  // Zolve allocates the partner internally after payment. No provider picking here.
   const handleMostBookedBooking = (service) => {
-    if (!requireAuthOrRedirect()) return;
-    if (!hasCoverage) return;
-    // 2-3 executives per cooperative job per location — pick randomly among nearby 50km matching that service (strict radius)
-    const svcNameLower = service.name.toLowerCase();
-    let eligible = nearbyProviders.filter(p =>
-      p.isCoopMember &&
-      (p.serviceCategories?.some(c => c.toLowerCase().includes(svcNameLower.split(' ')[0])) ||
-       p.serviceCategories?.some(c => svcNameLower.includes(c.toLowerCase())) ||
-       p.serviceCategories?.some(c => c.toLowerCase() === 'cleaning' && svcNameLower.includes('cleaning')) ||
-       p.serviceCategories?.some(c => c.toLowerCase() === 'electrical' && svcNameLower.includes('electrical')) ||
-       p.serviceCategories?.some(c => c.toLowerCase().includes('appliance') && svcNameLower.includes('ac')) ||
-       p.serviceCategories?.some(c => c.toLowerCase().includes('apartment maintenance') && svcNameLower.includes('sump')) ||
-       p.skills?.some(s => svcNameLower.includes(s.toLowerCase().split(' ')[0])))
-    );
-    // Fallback: any nearby 50km coop member that lists any of the 4 most-booked services generically
-    if (eligible.length < 2) {
-      const fallback = nearbyProviders.filter(p => p.isCoopMember);
-      eligible = fallback.length ? fallback : nearbyProviders;
-    }
-    if (!eligible.length) return;
-    // Ensure 2-3 executives per job — shuffle and pick random
-    const shuffled = [...eligible].sort(() => 0.5 - Math.random());
-    const chosen = shuffled[Math.floor(Math.random() * shuffled.length)];
-    // Pass service context to booking modal via title override
-    setSelectedProviderForBooking({ ...chosen, title: service.name, displayServiceName: service.name, isMostBookedBooking: true, originalPrice: service.original });
+    onOpenSearchWithCategory(service.name);
   };
 
   const handleLatestBooking = (service) => {
-    if (!requireAuthOrRedirect()) return;
-    if (!hasCoverage) return;
-    const svcNameLower = service.name.toLowerCase();
-    let eligible = nearbyProviders.filter(p => p.isCoopMember && p.serviceCategories?.some(c => svcNameLower.includes(c.toLowerCase().split(' ')[0]) || c.toLowerCase().includes(svcNameLower.split(' ')[0])));
-    if (eligible.length < 2) {
-      const fallback = nearbyProviders.filter(p => p.isCoopMember);
-      eligible = fallback.length ? fallback : nearbyProviders;
-    }
-    if (!eligible.length) return;
-    const chosen = [...eligible].sort(() => 0.5 - Math.random())[Math.floor(Math.random() * eligible.length)];
-    setSelectedProviderForBooking({ ...chosen, title: service.name, displayServiceName: service.name, isMostBookedBooking: true, originalPrice: service.original });
+    onOpenSearchWithCategory(service.name);
   };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [aiClassification, setAiClassification] = useState(null);
-
-  // Active / Upcoming bookings — filtered to own customerId only (zero history until booking)
-  const visibleBookings = currentUser ? bookings.filter(b => {
-    if (currentUser.role === 'customer') return b.customerId === currentUser.id;
-    if (currentUser.role === 'admin') return true;
-    return false;
-  }) : [];
-  const activeBookings = visibleBookings.filter(
-    (b) =>
-      b.bookingStatus !== 'SERVICE_COMPLETED' &&
-      b.bookingStatus !== 'CANCELLED' &&
-      b.bookingStatus !== 'REFUNDED'
-  );
-  const completedBookings = visibleBookings.filter((b) => b.bookingStatus === 'SERVICE_COMPLETED');
 
   // Handle live AI typing classification
   const handleSearchChange = (e) => {
@@ -347,90 +297,6 @@ export const CustomerDashboard = ({ onOpenSearchWithCategory }) => {
       >
         <SemanticServiceMatcher onSelectServiceName={(name) => onOpenSearchWithCategory(name)} />
       </motion.div>
-
-      {/* 2. UPCOMING / ACTIVE BOOKINGS WIDGET */}
-      {activeBookings.length > 0 && (
-        <motion.section
-          initial="visible"
-          animate="visible"
-          variants={staggerContainer}
-          className="space-y-4"
-        >
-          <motion.div variants={fadeInUp} className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-coop-500 animate-ping"></div>
-              <h2 className="text-2xl font-black text-slate-900 font-display tracking-tight">Active & Upcoming Bookings</h2>
-            </div>
-            <button
-              onClick={() => setActiveTab('bookings')}
-              className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1"
-            >
-              View All ({visibleBookings.length}) <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {activeBookings.map((b, i) => (
-              <motion.div
-                key={b.id}
-                variants={fadeInUp}
-                whileHover={{ y: -3, boxShadow: '0 8px 30px rgba(0,0,0,0.08)' }}
-                className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-subtle flex flex-col justify-between space-y-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={b.providerAvatar}
-                      alt={b.providerName}
-                      className="w-12 h-12 rounded-xl object-cover ring-2 ring-coop-500/20"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-bold text-slate-900">{b.serviceName}</h4>
-                        <span className="px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 text-[10px] font-bold">
-                          #{b.bookingCode}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Provider: <strong className="text-slate-800">{b.providerName}</strong>
-                      </p>
-                    </div>
-                  </div>
-
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide ${
-                    b.bookingStatus === 'PROVIDER_ON_THE_WAY'
-                      ? 'bg-zinc-900 text-white border border-zinc-800 animate-pulse'
-                      : 'bg-zinc-100 text-zinc-900 border border-zinc-300'
-                  }`}>
-                    {b.bookingStatus.replace(/_/g, ' ')}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{b.scheduledDate} • {b.scheduledTime}</span>
-                  </div>
-                  <div className="font-bold text-slate-900">₹{b.totalAmount} (Paid)</div>
-                </div>
-
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[11px] text-coop-700 font-medium flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Razorpay Verified Escrow
-                  </span>
-                  <button
-                    onClick={() => setActiveBookingForTracking(b)}
-                    className="px-4 py-2 rounded-xl bg-brand-900 hover:bg-brand-800 text-white text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
-                  >
-                    <span>Track Live Status</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.section>
-      )}
 
       {/* 2b. LOCATION NOT SERVICEABLE — strict 50km from saved/live location */}
       {locationStatus === 'detecting' && (

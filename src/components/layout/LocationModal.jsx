@@ -51,7 +51,8 @@ export const LocationModal = () => {
       try {
         const results = await searchPlaces(q, 8);
         if (curId !== searchIdRef.current) return;
-        setRemoteResults(results);
+        // Never store undefined — runtime .map() crash guard
+        setRemoteResults(Array.isArray(results) ? results : []);
       } catch (e) {
         if (curId !== searchIdRef.current) return;
         setSearchError(e.message || 'Search failed');
@@ -63,11 +64,12 @@ export const LocationModal = () => {
     return () => clearTimeout(debounceRef.current);
   }, [search]);
 
-  const popularAreas = getPopularAreas(selectedLocation?.city || null);
-  const filtered = popularAreas.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
+  const popularAreas = getPopularAreas(selectedLocation?.city || null) || [];
+  const filtered = popularAreas.filter(a => (a?.name || '').toLowerCase().includes(search.toLowerCase()));
   // avoid duplicating local popular inside remote results
-  const filteredNames = new Set(filtered.map(f => f.name.toLowerCase()));
-  const dedupedRemote = remoteResults.filter(r => !filteredNames.has(r.name.toLowerCase()) && !filteredNames.has((r.short || '').toLowerCase()));
+  const filteredNames = new Set(filtered.map(f => (f?.name || '').toLowerCase()));
+  const safeRemote = Array.isArray(remoteResults) ? remoteResults : [];
+  const dedupedRemote = safeRemote.filter(r => r && !filteredNames.has((r.name || '').toLowerCase()) && !filteredNames.has((r.short || '').toLowerCase()));
 
   const handleSelect = (item) => {
     setSelectedLocation({ name: item.name, lat: item.coords.lat, lng: item.coords.lng });
@@ -75,8 +77,9 @@ export const LocationModal = () => {
   };
 
   const handleSelectRemote = (item) => {
-    const label = item.short || item.name.split(',').slice(0, 3).join(',').trim();
-    setSelectedLocation({ name: label, full: item.name, lat: item.lat, lng: item.lng, pincode: item.pincode });
+    if (!item || item.lat == null || item.lng == null) return;
+    const label = item.short || String(item.name || '').split(',').slice(0, 3).join(',').trim() || 'Selected location';
+    setSelectedLocation({ name: label, full: item.name || label, lat: item.lat, lng: item.lng, pincode: item.pincode });
     setIsLocationModalOpen(false);
   };
 
@@ -263,16 +266,16 @@ export const LocationModal = () => {
                 {dedupedRemote.length > 0 && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1 pt-2">Suggestions across India</p>}
                 {dedupedRemote.map((item) => (
                   <button
-                    key={`${item.lat}-${item.lng}-${item.name}`}
+                    key={`${item?.lat}-${item?.lng}-${item?.name}`}
                     onClick={() => handleSelectRemote(item)}
                     className="w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-2.5 hover:bg-brand-50 border border-transparent hover:border-brand-200 transition-colors"
                   >
                     <MapPin className="w-4 h-4 text-brand-600 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-900 truncate">{item.short || item.name.split(',').slice(0,3).join(',')}</div>
-                      <div className="text-[10px] text-slate-500 truncate">{item.name}</div>
+                      <div className="text-xs font-bold text-slate-900 truncate">{item?.short || String(item?.name || '').split(',').slice(0,3).join(',') || 'Unnamed location'}</div>
+                      <div className="text-[10px] text-slate-500 truncate">{item?.name || ''}</div>
                     </div>
-                    <span className="text-[10px] text-slate-400 shrink-0">{item.lat.toFixed(2)}, {item.lng.toFixed(2)}</span>
+                    <span className="text-[10px] text-slate-400 shrink-0">{item?.lat != null && item?.lng != null ? `${Number(item.lat).toFixed(2)}, ${Number(item.lng).toFixed(2)}` : ''}</span>
                   </button>
                 ))}
                 {!searching && filtered.length === 0 && dedupedRemote.length === 0 && (

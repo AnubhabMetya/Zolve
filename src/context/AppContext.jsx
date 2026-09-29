@@ -738,8 +738,10 @@ export const AppProvider = ({ children }) => {
   ]);
 
   // provider live locations keyed by bookingId: { lat,lng, updatedAt, bookingId }
+  // v2 key: one-time purge — older entries could hold customer coords saved
+  // as partner positions by the pre-fix booking insert (fake 0.00 km).
   const [providerLiveLocations, setProviderLiveLocations] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_live_locs`);
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}_live_locs_v2`);
     try { return saved ? JSON.parse(saved) : {}; } catch { return {}; }
   });
   const [activeTab, setActiveTab] = useState(() => {
@@ -1073,7 +1075,7 @@ export const AppProvider = ({ children }) => {
   }, [activeTab]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}_live_locs`, JSON.stringify(providerLiveLocations));
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}_live_locs_v2`, JSON.stringify(providerLiveLocations));
   }, [providerLiveLocations]);
 
   // Listen for local realtime fallback (same-tab + cross-tab via custom event / storage)
@@ -1364,7 +1366,10 @@ export const AppProvider = ({ children }) => {
         provider_avatar: baseBooking.providerAvatar,
         provider_phone: baseBooking.providerPhone,
         provider_title: baseBooking.providerTitle,
-        provider_coords: baseBooking.providerCoords || baseBooking.customerCoords || null,
+        // Partner position stays null until a real provider location exists.
+        // Never copy customerCoords here — the tracker would read the
+        // destination back as the partner position (fake 0.00 km).
+        provider_coords: baseBooking.providerCoords || null,
         is_coop_member: !!baseBooking.isCoopMember,
         service_id: baseBooking.serviceId,
         service_name: baseBooking.serviceName,
@@ -1520,6 +1525,66 @@ export const AppProvider = ({ children }) => {
         });
       } catch (e) { console.warn('insurance auto-create failed', e); }
     }
+  };
+
+  // Internal post-payment partner assignment (customer catalog flow).
+  // Persists provider identity + PROVIDER_ASSIGNED status. Additive; existing flows untouched.
+  const assignBookingProvider = async (bookingId, provider) => {
+    if (!bookingId || !provider) return null;
+    const patch = {
+      booking_status: 'PROVIDER_ASSIGNED',
+      provider_id: String(provider.id),
+      provider_name: provider.name,
+      provider_avatar: provider.avatar,
+      provider_phone: provider.phone,
+      provider_title: provider.title,
+      is_coop_member: !!provider.isCoopMember,
+      provider_coords: provider.coords || null,
+      updated_at: new Date().toISOString()
+    };
+    // Qualification + rating snapshot: the customer card must render title,
+    // rating and skills even if the provider registry lookup misses later.
+    const snapshot = {
+      providerRating: provider.rating ?? null,
+      providerRatingCount: provider.ratingCount ?? null,
+      providerJobsCompleted: provider.completedJobs ?? provider.jobsCompleted ?? null,
+      providerExperienceYears: provider.experienceYears ?? provider.experience ?? null,
+      providerSkills: Array.isArray(provider.skills) ? provider.skills.slice(0, 4)
+        : Array.isArray(provider.assignedSkills) ? provider.assignedSkills.slice(0, 4) : null,
+    };
+    if (isSupabaseConfigured() && supaSession) {
+      try {
+        await supabase.from('bookings').update(patch).eq('id', bookingId);
+      } catch (e) {
+        console.warn('[assignBookingProvider] remote update failed:', e?.message || e);
+      }
+    }
+    // Build the updated booking synchronously (never null for a valid provider):
+    // setState updaters run during render, so capturing the result inside the
+    // updater would return null to the caller and desync the tracker.
+    const patchFields = {
+      bookingStatus: 'PROVIDER_ASSIGNED',
+      providerId: provider.id,
+      providerName: provider.name,
+      providerAvatar: provider.avatar,
+      providerPhone: provider.phone,
+      providerTitle: provider.title,
+      isCoopMember: !!provider.isCoopMember,
+      providerCoords: provider.coords || null,
+      ...snapshot,
+      updatedAt: new Date().toISOString()
+    };
+    setBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, ...patchFields } : b))
+    );
+    const base = bookings.find((x) => x.id === bookingId) || { id: bookingId };
+    const updated = { ...base, ...patchFields };
+    addNotification({
+      title: 'Professional Confirmed!',
+      message: 'A qualified Service Partner has been assigned to your booking.',
+      type: 'booking'
+    });
+    return updated;
   };
 
   const acceptExecutiveJob = async (bookingId) => {
@@ -1957,6 +2022,7 @@ export const AppProvider = ({ children }) => {
         bookings,
         createBooking,
         updateBookingStatus,
+        assignBookingProvider,
         acceptExecutiveJob,
         declineExecutiveJob,
         declinedJobIds,

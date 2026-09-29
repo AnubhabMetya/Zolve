@@ -1451,6 +1451,30 @@ export const INITIAL_PROVIDERS = [
     bio: "Kolkata hub pool executive.",
     recentReviews: []
   },
+  {
+    id: "prov-kolkata-paint-01",
+    name: "Sourav Banerjee",
+    title: "Wall Painting & Waterproofing Specialist — Kolkata",
+    rating: 4.87,
+    ratingCount: 175,
+    completedJobs: 340,
+    experienceYears: 8,
+    avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80",
+    phone: "+91 98127 00003",
+    email: "exec.kolkata.paint@zolve-coop.org",
+    location: "Salt Lake, Kolkata (1.5 km)",
+    coords: { lat: 22.5790, lng: 88.4070 },
+    basePrice: 1999,
+    startingPrice: 1999,
+    availability: "Available Today",
+    isCoopMember: true,
+    coopBadge: "Executive Cooperative Member",
+    verifications: { identity: true, skill: true, phone: true, background: true, coopMember: true },
+    serviceCategories: ["Wall Painting & Waterproofing","Painting","Full Home Deep Cleaning","Cleaning"],
+    skills: ["Wall Painting & Waterproofing","Interior Repaint","Anti-damp Treatment","Heritage Home Care"],
+    bio: "Salt Lake painting specialist serving Kolkata within 50km.",
+    recentReviews: []
+  },
   // Bengaluru x3 (ensure 3 for home city)
   {
     id: "prov-bengaluru-most-01",

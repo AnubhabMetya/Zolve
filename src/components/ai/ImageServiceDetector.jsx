@@ -1,11 +1,14 @@
 import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Upload, Image as ImageIcon, X, Sparkles, ArrowRight, AlertCircle, CheckCircle2, Loader2, Camera } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { findCategoryForServiceName } from '../../data/serviceCatalog.js';
 
 const API_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000';
 
 export const ImageServiceDetector = ({ onBookService, compact = false }) => {
-  const { setSelectedProviderForBooking, setBookingPrefill, providers, serviceCategories } = useApp();
+  const { setBookingPrefill } = useApp();
+  const navigate = useNavigate();
   const [files, setFiles] = useState([]); // File[]
   const [previews, setPreviews] = useState([]); // string[]
   const [dragOver, setDragOver] = useState(false);
@@ -17,23 +20,10 @@ export const ImageServiceDetector = ({ onBookService, compact = false }) => {
   const handleBook = () => {
     if (!result) return;
     if (onBookService) { onBookService(result, files); return; }
-    // Default: directly open BookingModal with prefill + matched provider (anonymous allowed)
+    // SERVICE-FIRST: AI suggestion → normal service catalog.
+    // Partner is allocated internally after payment; customer never picks a provider.
     const svcName = result.service?.name;
     const svcId = result.service?.id;
-    // Try to find best provider for this service
-    let matched = providers?.find(p => p.serviceCategories?.some(c => svcName?.toLowerCase().includes(c.toLowerCase()) || c.toLowerCase().includes(svcName?.toLowerCase().split(' ')[0])));
-    if (!matched) {
-      // Fallback: search serviceCategories for exact service then pick any provider for that category
-      for (const cat of serviceCategories || []) {
-        const svc = cat.services?.find(s => s.name === svcName);
-        if (svc) {
-          matched = providers?.find(p => p.serviceCategories?.includes(svc.subcategory) || p.serviceCategories?.includes(svc.category));
-          if (matched) break;
-        }
-      }
-    }
-    if (!matched) matched = providers?.[0];
-    // Build prefill with image previews (object URLs for display in BookingModal)
     const imagePreviews = previews; // already object URLs
     setBookingPrefill({
       serviceId: svcId,
@@ -44,13 +34,8 @@ export const ImageServiceDetector = ({ onBookService, compact = false }) => {
       images: files.map((f, i) => ({ name: f.name, url: imagePreviews[i], size: f.size })),
       detectedAt: new Date().toISOString(),
     });
-    if (matched) {
-      setSelectedProviderForBooking({
-        ...matched,
-        title: svcName || matched.title,
-        // Ensure BookingModal shows detected service name
-      });
-    }
+    const cat = findCategoryForServiceName(svcName || '');
+    navigate(cat ? `/services/${cat.id}` : '/search');
   };
 
   const handleFiles = (fileList) => {
@@ -197,7 +182,7 @@ export const ImageServiceDetector = ({ onBookService, compact = false }) => {
             Book This Service <ArrowRight className="w-3.5 h-3.5" />
           </button>
           <div className="text-[10px] text-slate-500 text-center flex items-center justify-center gap-1">
-            <CheckCircle2 className="w-3 h-3 text-coop-600" /> Directly opens booking — photos will be attached
+            <CheckCircle2 className="w-3 h-3 text-coop-600" /> Opens the service catalog — Zolve assigns the right professional after booking
           </div>
         </div>
       )}

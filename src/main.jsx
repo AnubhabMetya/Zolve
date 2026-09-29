@@ -6,6 +6,7 @@ import './i18n/config.js'
 import App from './App.jsx'
 import { AppProvider } from './context/AppContext.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
+import { CartProvider } from './context/CartContext.jsx'
 
 window.addEventListener('error', (e) => {
   console.error('Global error:', e.error || e.message);
@@ -19,7 +20,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <AppProvider>
-          <App />
+          <CartProvider>
+            <App />
+          </CartProvider>
         </AppProvider>
       </AuthProvider>
     </BrowserRouter>

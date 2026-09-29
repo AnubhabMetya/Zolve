@@ -203,7 +203,8 @@ export const BookingModal = () => {
     addrDebounceRef.current = setTimeout(async () => {
       try {
         const results = await searchPlaces(q, 6);
-        setAddrSearchResults(results);
+        // Never store undefined — runtime .map() crash guard
+        setAddrSearchResults(Array.isArray(results) ? results : []);
       } catch { setAddrSearchResults([]); }
       finally { setAddrSearching(false); }
     }, 450);
@@ -716,28 +717,29 @@ export const BookingModal = () => {
                           className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"
                         ></textarea>
                         {addrSearching && <p className="text-[11px] text-slate-500 mt-1">Searching India...</p>}
-                        {addrSearchResults.length > 0 && (
+                        {(addrSearchResults || []).length > 0 && (
                           <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-                            {addrSearchResults.map((r) => (
+                            {(addrSearchResults || []).map((r) => (
                               <button
-                                key={`${r.lat}-${r.lng}-${r.name}`}
+                                key={`${r?.lat}-${r?.lng}-${r?.name}`}
                                 type="button"
                                 onClick={() => {
-                                  setCustomAddress(r.name);
-                                  setSelectedAddress(r.name);
-                                  setAddressCoords({ lat: r.lat, lng: r.lng });
+                                  const label = r?.name || '';
+                                  setCustomAddress(label);
+                                  setSelectedAddress(label);
+                                  if (r?.lat != null && r?.lng != null) setAddressCoords({ lat: r.lat, lng: r.lng });
                                   setAddrSearchResults([]);
                                 }}
                                 className="w-full text-left px-3 py-2.5 hover:bg-brand-50 dark:hover:bg-slate-800 flex items-start gap-2 border-b last:border-0 border-slate-100 dark:border-slate-800"
                               >
                                 <MapPin className="w-3.5 h-3.5 text-brand-600 shrink-0 mt-0.5" />
-                                <span className="text-xs text-slate-700 dark:text-slate-200 line-clamp-2">{r.name}</span>
+                                <span className="text-xs text-slate-700 dark:text-slate-200 line-clamp-2">{r?.name || 'Unnamed location'}</span>
                               </button>
                             ))}
                           </div>
                         )}
-                        {!addrSearching && isCustomAddress && customAddress.trim().length >= 3 && addrSearchResults.length === 0 && (
-                          <p className="text-[11px] text-slate-400 mt-1">No suggestions — keep typing (e.g. &quot;Connaught Place Delhi&quot;) or use current GPS / drag map pin.</p>
+                        {!addrSearching && isCustomAddress && customAddress.trim().length >= 3 && (addrSearchResults || []).length === 0 && (
+                          <p className="text-[11px] text-slate-400 mt-1">No matching locations found — keep typing (e.g. &quot;Connaught Place Delhi&quot;) or use current GPS / drag map pin.</p>
                         )}
                       </div>
                     )}
@@ -757,7 +759,7 @@ export const BookingModal = () => {
                         placeholder="6-digit PIN e.g. 110001"
                         value={pinCodeBooking}
                         onChange={(e)=>{ const v=e.target.value.replace(/\D/g,'').slice(0,6); setPinCodeBooking(v); if(pinBookingError) setPinBookingError(''); }}
-                        onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); (async()=>{ if(!isValidIndianPincode(pinCodeBooking)) { setPinBookingError('Enter valid 6-digit pincode'); return; } setPinBookingLoading(true); setPinBookingError(''); try{ const r=await searchByPincode(pinCodeBooking,1); const b=r[0]; setAddressCoords({lat:b.lat,lng:b.lng}); const label=b.short||b.name; setCustomAddress(label); setSelectedAddress(label); setIsCustomAddress(true);}catch(err){ setPinBookingError(err.message);} finally{ setPinBookingLoading(false);} })(); } }}
+                        onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); (async()=>{ if(!isValidIndianPincode(pinCodeBooking)) { setPinBookingError('Enter valid 6-digit pincode'); return; } setPinBookingLoading(true); setPinBookingError(''); try{ const r=await searchByPincode(pinCodeBooking,1); const b=Array.isArray(r)?r[0]:null; if(!b||b.lat==null||b.lng==null) throw new Error('No location found for this pincode'); setAddressCoords({lat:b.lat,lng:b.lng}); const label=b.short||b.name||pinCodeBooking; setCustomAddress(label); setSelectedAddress(label); setIsCustomAddress(true);}catch(err){ setPinBookingError(err.message);} finally{ setPinBookingLoading(false);} })(); } }}
                         className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm tracking-widest"
                       />
                       <button
@@ -768,9 +770,10 @@ export const BookingModal = () => {
                           setPinBookingLoading(true); setPinBookingError('');
                           try{
                             const res = await searchByPincode(pinCodeBooking, 1);
-                            const best = res[0];
+                            const best = Array.isArray(res) ? res[0] : null;
+                            if (!best || best.lat == null || best.lng == null) throw new Error('No location found for this pincode');
                             setAddressCoords({ lat: best.lat, lng: best.lng });
-                            const label = best.short || best.name;
+                            const label = best.short || best.name || pinCodeBooking;
                             setCustomAddress(label);
                             setSelectedAddress(label);
                             setIsCustomAddress(true);
@@ -796,14 +799,19 @@ export const BookingModal = () => {
                           setGpsLoadingAddress(true); setGpsAddrError('');
                           try {
                             const pos = await getCurrentPosition();
+                            if (pos == null || pos.lat == null || pos.lng == null) throw new Error('Position unavailable');
                             setAddressCoords({ lat: pos.lat, lng: pos.lng });
                             try {
                               const rev = await reverseGeocode(pos.lat, pos.lng);
-                              setSelectedAddress(rev.full);
-                              setCustomAddress(rev.full);
+                              const label = rev?.full || rev?.name || `${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
+                              setSelectedAddress(label);
+                              setCustomAddress(label);
                               setIsCustomAddress(true);
                             } catch { /* keep coords */ }
-                          } catch (e) { setGpsAddrError(e.message); } finally { setGpsLoadingAddress(false); }
+                          } catch (e) {
+                            const msg = e?.message || 'Failed to get location';
+                            setGpsAddrError(/denied|permission/i.test(msg) ? 'Location permission is unavailable — enable location access or pick manually.' : msg);
+                          } finally { setGpsLoadingAddress(false); }
                         }}
                         className="px-3 py-1.5 rounded-xl bg-brand-900 text-white text-[11px] font-bold disabled:opacity-60 flex items-center gap-1"
                       >
@@ -812,7 +820,7 @@ export const BookingModal = () => {
                     </div>
                     {gpsAddrError && <p className="text-xs text-red-600">{gpsAddrError}</p>}
                     <MapView customerPos={addressCoords} providerPos={p.coords || null} draggable onCustomerMove={setAddressCoords} height="180px" />
-                    <p className="text-[10px] text-slate-400">Drag the blue pin to adjust. Coordinates saved with booking: {addressCoords ? `${addressCoords.lat.toFixed(4)}, ${addressCoords.lng.toFixed(4)}` : 'Not set - select location or drag pin'}</p>
+                    <p className="text-[10px] text-slate-400">Drag the blue pin to adjust. Coordinates saved with booking: {addressCoords?.lat != null && addressCoords?.lng != null ? `${Number(addressCoords.lat).toFixed(4)}, ${Number(addressCoords.lng).toFixed(4)}` : 'Not set - select location or drag pin'}</p>
                   </div>
                 </div>
               </div>

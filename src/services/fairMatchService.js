@@ -178,7 +178,12 @@ export function calculateFairnessScores(candidates, allBookings = []) {
 // Hard eligibility filter (must NEVER be overridden by fairness or semantic similarity)
 // FIX 1: Semantic retrieval is NOT qualification — verify actual serviceCategories/skills/title
 export function isEligible(provider, context) {
-  const { requestedService, requestedDate, requestedTime, customerLocation, allBookings = [] } = context;
+  const { requestedDate, requestedTime, customerLocation, allBookings = [] } = context;
+  // Defensive: some callers pass the service name as a plain string.
+  // Eligibility reads requestedService.name — normalize so the
+  // qualification check is never silently skipped.
+  const rawService = context.requestedService;
+  const requestedService = typeof rawService === 'string' ? { name: rawService } : rawService;
 
   // 1. Not qualified for requested service: verify provider's actual qualification fields
   if (requestedService && requestedService.name) {
