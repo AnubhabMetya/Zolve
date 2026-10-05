@@ -1,106 +1,624 @@
-# Zolve — Cooperative Gig Services Platform (SIH26089)
+# Zolve — AI-Powered Cooperative Gig Services Platform
 
-**Challenge #89 of 236 | Agriculture, FoodTech & Rural Development | Software Edition**
-**Sponsoring Organization:** Ministry of Cooperation — Department: National Council for Cooperative Training (NCCT)
-**Submission Deadline:** 30 September 2026 | **Cash Prize:** ₹1,00,000 / Winning Team
+> **Fair work. Smart matching. Better opportunities.**
 
-> Cooperative-owned digital service marketplace enabling Labour Cooperative Federations & Labour Cooperative Societies to provide verified household & community services while ensuring fair wages, worker welfare, and consumer trust.
+Zolve is an **AI-powered cooperative gig-services platform** designed to connect customers with trusted local service professionals while creating a fairer and more transparent system for workers.
 
----
-
-## SIH Problem Statement — Expected Features Coverage
-
-| # | Feature | Status | Code Evidence |
-|---|---------|--------|---------------|
-| 1 | Service provider registration & verification | ✅ Implemented (Supabase Auth + KYC upload + admin approve) | `src/pages/SignupPage.jsx:82`, `src/context/AuthContext.jsx:105`, `src/services/kycService.js`, `src/components/admin/AdminDashboard.jsx:365` |
-| 2 | Worker skill profiling & certification | ✅ Implemented (3-skill cap + training academy + quiz cert) | `src/components/executive/ExecutiveSkillSelector.jsx`, `src/components/cooperative/CooperativePortal.jsx:275`, `src/services/certificationService.js` |
-| 3 | Customer booking & scheduling (IST 2h rule) | ✅ Implemented | `src/components/customer/BookingModal.jsx:71` `isSlotEligible >=2h` |
-| 4 | Geo-location based service matching (50km hard rule) | ✅ Implemented | `src/services/locationService.js:149` `haversineKm`, `src/components/common/MapView.jsx` |
-| 5 | Digital payments & invoicing (Razorpay) | ✅ Implemented (live checkout + HMAC verify + PDF) | `src/services/razorpayService.js`, `src/components/customer/InvoiceModal.jsx` |
-| 6 | Rating & feedback (5-criteria) | ✅ Implemented | `src/components/customer/ReviewModal.jsx`, `src/db/schema.sql:161` |
-| 7 | Worker welfare & insurance (4% fund + ₹5L cover) | ✅ Implemented | `src/services/insuranceService.js`, `src/components/provider/WelfareInsurancePanel.jsx` |
-| 8 | Emergency & on-demand booking | ✅ Implemented | `src/services/emergencyDispatchService.js` (100-pt weighted), `BookingModal.jsx:28` |
-| 9 | Cooperative federation admin dashboard (21 hubs) | ✅ Implemented | `src/components/admin/AdminDashboard.jsx` 9 tabs |
-| 10 | Multilingual mobile app (6 languages + PWA) | ✅ Implemented (en, hi, bn, mr, ta, te) | `src/i18n/config.js`, `src/locales/*.json`, `vite-plugin-pwa` |
-| 11 | AI demand forecasting & workforce allocation | ✅ Implemented (XGBoost prototype + deterministic engine) | `models/demand_forecast_xgb.json`, `src/services/workforceAllocationService.js` |
-
-**Technology Components:** Mobile Applications (PWA) ✅ | AI (XGBoost + rule engines) ✅ | Geo-Spatial (Leaflet + haversine) ✅ | Digital Payments (Razorpay + n8n) ✅ | Cloud (Supabase + Vercel) ✅
+Unlike traditional gig platforms that primarily optimize for speed and platform profit, Zolve focuses on **fair opportunity distribution, local matching, skill-based recommendations, and worker empowerment**.
 
 ---
 
-## Quick Start
+## 🚀 What is Zolve?
+
+Zolve connects two sides of the service ecosystem:
+
+**Customers** who need reliable local services  
+↓  
+**Zolve AI Matching Engine**  
+↓  
+**Verified Service Professionals**
+
+The platform intelligently considers:
+
+- Service requirements
+- Professional skills
+- Geographic proximity
+- Availability
+- Existing bookings
+- Semantic similarity
+- Fairness between professionals
+
+This allows Zolve to find the **right professional for the job while preventing the same workers from receiving all the opportunities**.
+
+---
+
+## 🎯 Problem
+
+Traditional gig-service platforms often face several problems:
+
+- Workers compete for the same limited opportunities.
+- A small number of highly ranked workers may receive most bookings.
+- Customers may be matched with professionals who are far away.
+- Skill descriptions and customer requirements may not match accurately.
+- Workers have limited control over their availability and growth.
+- Platform algorithms can become difficult for workers to understand.
+
+Zolve addresses these problems through an **AI-assisted, cooperative matching model**.
+
+---
+
+## 💡 Our Solution
+
+Zolve uses a multi-stage intelligent matching pipeline:
+
+```text
+Customer Request
+       ↓
+Geographic Filtering
+       ↓
+Service / Skill Eligibility
+       ↓
+Semantic Matching
+       ↓
+Availability Check
+       ↓
+Double-Booking Prevention
+       ↓
+FairMatch Ranking
+       ↓
+Top Local Professionals
+       ↓
+Assignment
+```
+
+The system does not simply select the "closest" or "highest-rated" professional.
+
+Instead, it attempts to find a professional who is:
+
+**Qualified + Nearby + Available + Semantically Relevant + Fairly Selected**
+
+---
+
+# 🤖 AI Matching System
+
+## 1. Semantic Service Matching
+
+Customers do not always describe their requirements using predefined service names.
+
+For example:
+
+> "I need someone to clean my three-room apartment before guests arrive."
+
+The system can understand that this is related to:
+
+> **3 Room Deep Cleaning**
+
+Zolve uses semantic matching to connect natural-language requests with available services and professional skills.
+
+A **TF-IDF fallback mechanism** is also available when semantic embeddings are unavailable.
+
+---
+
+## 2. FairMatch
+
+Zolve introduces a fairness-aware ranking layer called **FairMatch**.
+
+Instead of repeatedly selecting the same highly ranked professionals, the system considers factors such as:
+
+- Skill compatibility
+- Distance
+- Availability
+- Previous workload
+- Opportunity distribution
+
+This helps create a more balanced allocation of work.
+
+### Objective
+
+```text
+Best Match
+      +
+Fair Opportunity
+      =
+Zolve Match
+```
+
+---
+
+# 📍 Intelligent Geographic Matching
+
+Zolve uses location-aware filtering to prevent unrealistic matches.
+
+The matching pipeline first identifies professionals within a defined geographic radius.
+
+```text
+Customer Location
+       ↓
+City / Locality Filter
+       ↓
+≤ 50 km Radius
+       ↓
+Qualified Local Professionals
+```
+
+The prototype includes multiple Indian city hubs such as:
+
+- Delhi NCR
+- Gurugram
+- Mumbai
+- Bengaluru
+- Chennai
+- Hyderabad
+- Kolkata
+- Ahmedabad
+- Pune
+- Surat
+- Visakhapatnam
+- Coimbatore
+- Vadodara
+- Nagpur
+- Jaipur
+- Lucknow
+- Kochi
+- Indore
+- Patna
+- Bhopal
+- Siliguri
+
+---
+
+# 👷 Professional / Executive Portal
+
+Zolve is not only a customer booking platform.
+
+The **Executive Portal** is designed around the professional's experience.
+
+### Features
+
+- 🟢 Online / Offline availability
+- 📅 Today's schedule
+- 💼 Job cards
+- 📍 Live location
+- 🗺️ Google Maps navigation
+- 💰 Earnings dashboard
+- 📈 Skill upgrades
+- 🎁 Incentive programs
+- 🔥 Opportunity heatmap
+- 📊 Work and booking information
+
+During the matching process, the customer's interface does not immediately expose the professional's personal identity.
+
+Instead, it displays:
+
+> **Finding a Professional...**
+
+This keeps the experience focused on the service rather than turning the process into a race between individual workers.
+
+---
+
+# 🔐 Professional Verification
+
+Zolve is designed with a multi-step professional verification process.
+
+```text
+Registration
+    ↓
+OTP Verification
+    ↓
+Identity Verification
+    ↓
+Aadhaar / PAN Verification
+    ↓
+Skill Verification / Training
+    ↓
+Professional Approval
+    ↓
+Zolve Executive Portal
+```
+
+The goal is to create a more trustworthy service ecosystem for customers while giving professionals a structured path to participate.
+
+---
+
+# 💳 Payments
+
+Zolve integrates **Razorpay** for payment processing.
+
+The booking flow is designed around:
+
+```text
+Service Selection
+      ↓
+Cart
+      ↓
+Coupon
+      ↓
+Checkout
+      ↓
+Payment
+      ↓
+Booking Creation
+      ↓
+Professional Matching
+```
+
+---
+
+# 🎟️ Coupon System
+
+The prototype includes promotional coupons:
+
+| Coupon | Discount | Minimum Order | Maximum Discount |
+|---|---:|---:|---:|
+| `ZOLVE10` | 10% | ₹799 | ₹100 |
+| `ZOLVE20` | 20% | ₹1,099 | ₹150 |
+| `ZOLVE30` | 30% | ₹1,599 | ₹250 |
+
+Discounts are automatically capped according to the configured limits.
+
+---
+
+# 🧹 Example Services
+
+The prototype includes services such as:
+
+| Service | Example Price |
+|---|---:|
+| 1 Room Cleaning | ₹999 |
+| 2 Room Cleaning | ₹1,399 |
+| 3 Room Cleaning | ₹1,899 |
+| Kitchen Cleaning | ₹799 |
+| Bathroom Cleaning | ₹799 |
+| Full Deep Cleaning | ₹2,999 |
+
+Pricing can be extended dynamically as the platform grows.
+
+---
+
+# 🔄 Booking Lifecycle
+
+Zolve uses a state-based booking system.
+
+```text
+CREATED
+   ↓
+MATCHING
+   ↓
+AWAITING_PARTNER
+   ↓
+ASSIGNED
+   ↓
+EN_ROUTE
+   ↓
+ARRIVED
+   ↓
+SERVICE_STARTED
+   ↓
+SERVICE_COMPLETED
+```
+
+Additional states handle exceptional situations:
+
+```text
+REASSIGNING
+RESCHEDULE
+REFUND_REQUESTED
+REFUND_COMPLETED
+```
+
+This makes the booking system easier to manage and extend.
+
+---
+
+# 🏗️ Technology Stack
+
+### Frontend
+
+- React
+- Vite
+- Tailwind CSS
+- JavaScript
+
+### Backend / Database
+
+- Supabase
+- PostgreSQL
+- Row Level Security (RLS)
+
+### AI / Matching
+
+- Semantic embeddings
+- TF-IDF
+- FairMatch ranking
+- Geographic distance calculation
+- Haversine distance
+
+### Payments
+
+- Razorpay
+
+### Automation
+
+- n8n Cloud
+
+### Deployment
+
+- Vercel
+
+---
+
+# 🧠 System Architecture
+
+```text
+                     ┌────────────────────┐
+                     │      Customer      │
+                     │      Web App       │
+                     └─────────┬──────────┘
+                               │
+                               ▼
+                     ┌────────────────────┐
+                     │   Zolve Platform   │
+                     └─────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+              ▼                ▼                ▼
+       ┌─────────────┐  ┌──────────────┐  ┌─────────────┐
+       │  Semantic   │  │ Geo Filter   │  │ Availability│
+       │  Matching   │  │  ≤ 50 km     │  │   Check     │
+       └──────┬──────┘  └──────┬───────┘  └──────┬──────┘
+              │                │                 │
+              └────────────────┼─────────────────┘
+                               ▼
+                       ┌──────────────┐
+                       │  FairMatch   │
+                       │   Ranking    │
+                       └──────┬───────┘
+                              │
+                              ▼
+                     ┌──────────────────┐
+                     │  Local Qualified │
+                     │  Professionals   │
+                     └────────┬─────────┘
+                              │
+                              ▼
+                     ┌──────────────────┐
+                     │ Executive Portal │
+                     └──────────────────┘
+```
+
+---
+
+# 📊 Matching Pipeline
+
+Zolve's matching engine follows this order:
+
+### Step 1 — Geographic Filter
+
+Remove professionals outside the configured service radius.
+
+### Step 2 — Skill Eligibility
+
+Keep only professionals qualified for the requested service.
+
+### Step 3 — Semantic Retrieval
+
+Compare the customer's request with available services and professional skills.
+
+### Step 4 — Availability
+
+Remove professionals who are unavailable at the requested time.
+
+### Step 5 — Double-Booking Prevention
+
+Ensure that a professional is not assigned overlapping jobs.
+
+### Step 6 — FairMatch
+
+Rank eligible professionals using relevance, distance, availability, and fairness.
+
+### Step 7 — Assignment
+
+Return the best available candidates and proceed with assignment.
+
+---
+
+# 🧪 Testing
+
+The prototype has been tested across the major matching components.
+
+| Component | Tests |
+|---|---:|
+| FairMatch | 37 |
+| CityGeo | 14 |
+| Semantic Matching | 10 |
+| **Total** | **61** |
+
+### Result
+
+**61 tests passed successfully.**
+
+The tests cover matching behavior, geographic filtering, semantic retrieval, and fairness-related logic.
+
+---
+
+# 📁 Project Structure
+
+```text
+Zolve/
+│
+├── src/
+│   ├── components/
+│   │   ├── customer/
+│   │   ├── executive/
+│   │   └── shared/
+│   │
+│   ├── services/
+│   │   ├── matching/
+│   │   ├── geo/
+│   │   └── payments/
+│   │
+│   ├── pages/
+│   └── utils/
+│
+├── supabase/
+│   └── migrations/
+│
+├── public/
+│
+├── package.json
+├── vite.config.js
+└── README.md
+```
+
+*The exact structure may evolve as the project grows.*
+
+---
+
+# ⚙️ Getting Started
+
+## Prerequisites
+
+Make sure you have installed:
+
+- Node.js
+- npm
+- Git
+
+---
+
+## 1. Clone the Repository
+
+```bash
+git clone https://github.com/AnubhabMetya/Zolve.git
+cd Zolve
+```
+
+## 2. Install Dependencies
 
 ```bash
 npm install
-cp .env.example .env   # fill VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_RAZORPAY_KEY_ID (optional sandbox)
-npm run dev            # http://localhost:5173
-npm run build          # production
 ```
 
-**Demo Roles:** Append `?demo` to URL or use Navbar → Demo Role (Customer / Coop Member / Provider / Executive / Society Admin / Platform Admin). Without `?demo` and as non-admin, demo switcher is hidden.
+## 3. Configure Environment Variables
 
----
+Create a `.env` file in the project root.
 
-## Architecture
+Example:
 
-```
-Vite + React 19 + React Router 7 + Tailwind 3
-i18next (6 locales, localStorage persist `zolve_lang`)
-Leaflet + react-leaflet (OSM tiles, Nominatim geocode)
-Supabase (Auth PKCE, Postgres RLS, Realtime, Storage for KYC, Edge Functions for OTP)
-Vercel (SPA rewrite)
-Razorpay (order create → HMAC verify → webhook) via n8n blueprints
-XGBoost demand model (synthetic 50k rows, 9.3MB artifact)
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-**Key Services:** `src/services/` — `aiEngine.js` (classifier), `semanticService.js` (TF-IDF), `fairMatchService.js` (7 weights), `workforceAllocationService.js`, `emergencyDispatchService.js`, `trustAnomalyService.js`, `locationService.js`, `razorpayService.js`, `kycService.js`, `insuranceService.js`, `certificationService.js`
+Add any additional environment variables required by your payment or automation integrations.
+
+> Never commit API keys, service-role keys, payment secrets, or other credentials to GitHub.
 
 ---
 
-## 50 km Hard Rule
+## 4. Start Development Server
 
-No Bengaluru fallback. Every matching path checks `haversineKm <= 50` — `CustomerDashboard.jsx:84`, `ExecutiveJobDiscovery.jsx:84`, `workforceAllocationService.js:137`, `emergencyDispatchService.js:127`, `fairMatchService.js`.
+```bash
+npm run dev
+```
 
----
-
-## Multilingual
-
-`src/i18n/config.js` — `en, hi, bn, mr, ta, te` with `i18next-browser-languagedetector` (localStorage `zolve_lang`). Switcher in `Navbar.jsx` (`LanguageSwitcher.jsx` compact). All core nav + booking strings externalized in `src/locales/*.json`.
-
-## PWA
-
-`vite-plugin-pwa` in `vite.config.js` — manifest `Zolve` standalone, `theme_color #0f172a`, icons `public/icons/icon-192.png` & `512.png` (maskable), Workbox cache for OSM tiles + Nominatim + static assets. Test: Lighthouse → Installable.
-
-## Payments
-
-Sandbox without `VITE_RAZORPAY_KEY_ID`, live via `window.Razorpay` `razorpayService.js:96`. Blueprints in `src/backend-blueprints/*.n8n.json` document server HMAC. Invoice PDF via `jsPDF` in `InvoiceModal.jsx`.
-
-## AI Forecasting
-
-Synthetic prototype: `data/synthetic_demand_history.csv` (50.4k), `models/demand_forecast_xgb.json`. Admin dashboard loads live CSV `public/data/forecastPredictions.json` via `aiDataLoader.js:loadForecastPredictions()` — no hardcoded fallback. Disclaimer in `models/demand_forecast_metrics.json`.
+The application will be available at the local development URL shown by Vite.
 
 ---
 
-## Demo Credentials (Supabase seed)
+# 🌐 Deployment
 
-Use `SignupPage` to create accounts, or `?demo` role switch. KYC docs seeded in `public/data/` + `src/db/seed_*`.
+Zolve can be deployed using **Vercel**.
+
+Typical deployment flow:
+
+```text
+GitHub
+   ↓
+Vercel
+   ↓
+Build
+   ↓
+Production Deployment
+```
+
+Make sure the required environment variables are configured in the Vercel project settings.
 
 ---
 
-## Submission Checklist for SIH
+# 🗺️ Roadmap
 
-- [x] 6-language switcher visible in jury demo
-- [x] PWA install prompt (Chrome → Install Zolve)
-- [x] Live booking 2h IST rule
-- [x] 50km geo demos (Kolkata vs distant city)
-- [x] Razorpay test payment + invoice PDF
-- [x] Admin: KYC verify → approve → provider badge
-- [x] Emergency dispatch weighted ranking demo
-- [x] Workforce allocation SHORTAGE/SURPLUS table
-- [x] Insurance claim flow (provider welfare panel)
+### Current
+
+- [x] Customer service booking
+- [x] Semantic matching
+- [x] Geographic filtering
+- [x] FairMatch
+- [x] Professional availability
+- [x] Executive portal
+- [x] Booking state management
+- [x] Razorpay integration
+- [x] Supabase integration
+
+### Future
+
+- [ ] Production-grade AI matching model
+- [ ] Real-time professional location tracking
+- [ ] Advanced workload balancing
+- [ ] Worker reputation system
+- [ ] Skill certification marketplace
+- [ ] Cooperative governance mechanisms
+- [ ] Automated dispute resolution
+- [ ] Dynamic incentive optimization
+- [ ] Advanced fraud detection
+- [ ] Multi-city production deployment
+- [ ] Native mobile application
 
 ---
 
-## Team
+# 🌱 Why Zolve?
 
-Zolve — SIH Internal Round Top 10 / 230 teams. Built for Ministry of Cooperation, NCCT.
+Zolve is built around a simple principle:
+
+> **Technology should not only make services faster — it should make opportunities fairer.**
+
+The platform combines **AI, geolocation, service intelligence, and cooperative principles** to create a service marketplace where customers get better matches and professionals get a more balanced opportunity to earn.
+
+---
+
+# 🤝 Contributing
+
+Contributions, suggestions, and improvements are welcome.
+
+### Basic workflow
+
+```bash
+git checkout -b feature/your-feature
+```
+
+Make your changes, test them, and submit a pull request.
+
+Please keep contributions focused, documented, and tested.
+
+---
+
+# 📄 License
+
+This project is currently intended as a prototype / development project.
+
+Add an appropriate open-source license here if the repository is later released under one.
+
+---
+
+# 👨‍💻 Project
+
+**Zolve — AI-Powered Cooperative Gig Services Platform**
+
+Built with:
+
+**React • Vite • Tailwind CSS • Supabase • AI Matching • Razorpay • n8n • Vercel**
+
+---
+
+⭐ If you find the concept interesting, consider starring the repository and following the project's development.
